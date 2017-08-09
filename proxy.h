@@ -3,6 +3,7 @@
 
 #include "tinydtls.h"
 #include "dtls.h"
+#include "keystore.h"
 
 typedef struct proxy_option {
     char *listen_host;
