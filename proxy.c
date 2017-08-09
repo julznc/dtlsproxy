@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
+#include <ev.h>
+
 
 #include "proxy.h"
 #include "utils.h"
@@ -106,6 +108,11 @@ int proxy_init(proxy_context_t *ctx,
       ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
     }
 
+    if (bind(ctx->listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
+        ERR("bind: %s", strerror(errno));
+        return -1;
+    }
+
 
     dtls_init();
     ctx->dtls_ctx = dtls_new_context(ctx);
@@ -115,6 +122,33 @@ int proxy_init(proxy_context_t *ctx,
     }
 
     dtls_set_handler(ctx->dtls_ctx, &dtls_cb);
+
+    return 0;
+}
+
+static void proxy_cb(EV_P_ ev_io *w, int revents)
+{
+    DBG("%s revents=%X", __func__, revents);
+}
+
+static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
+{
+    DBG("%s fd=%d", __func__, ctx->listen_fd);
+    ev_io_init(w, proxy_cb, ctx->listen_fd, EV_READ);
+    w->data = ctx;
+    ev_io_start(EV_A_ w);
+}
+
+int proxy_loop(proxy_context_t *ctx)
+{
+    DBG("%s", __func__);
+
+    ev_io proxy_watcher;
+    struct ev_loop *loop = ev_default_loop(0);
+    start_listen_io(EV_A_ &proxy_watcher, ctx);
+
+    DBG("call libev loop()");
+    ev_loop(EV_A_ 0);
 
     return 0;
 }

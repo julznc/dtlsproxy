@@ -97,6 +97,8 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    proxy_loop(&context);
+
     proxy_deinit(&context);
     DBG("%s exit", argv[argc-argc]);
     return 0;
