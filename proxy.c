@@ -126,9 +126,51 @@ int proxy_init(proxy_context_t *ctx,
     return 0;
 }
 
+static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
+{
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+
+    session_t session;
+    memset(&session, 0, sizeof(session_t));
+    session.size = sizeof(session.addr);
+
+    static uint8 buf[DTLS_MAX_BUF];
+    int len = recvfrom(ctx->listen_fd, buf, sizeof(buf), MSG_TRUNC,
+                       &session.addr.sa, &session.size);
+
+    if (len < 0) {
+        perror("recvfrom");
+        return -1;
+    } else {
+        DBG("got %d bytes from port %d", len,
+            ntohs(session.addr.sin6.sin6_port));
+        if (sizeof(buf) < len) {
+            ERR("packet was truncated (%d bytes lost)\n", len - (int)sizeof(buf));
+        }
+    }
+
+    return dtls_handle_message(dtls_ctx, &session, buf, len);
+}
+
 static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
     DBG("%s revents=%X", __func__, revents);
+    proxy_context_t *ctx = (proxy_context_t *)w->data;
+    static int count = 0;
+
+    DBG("%s fds: %d,%d revents: 0x%02x count: %d",
+        __func__, w->fd, ctx->listen_fd, revents, count);
+    count++;
+
+    struct sockaddr_storage local_addr;
+    socklen_t local_addr_size = sizeof(local_addr);
+    int ret = getsockname(ctx->listen_fd, (struct sockaddr *)&local_addr, &local_addr_size);
+    if (ret < 0) {
+        ERR("getsockname()=%d errno=%d", ret, errno);
+        return;
+    }
+
+    dtls_handle_read(ctx->dtls_ctx);
 }
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
