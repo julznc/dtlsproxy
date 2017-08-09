@@ -37,10 +37,14 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
     return 0;
 }
 
-static int get_psk_info(struct dtls_context_t *dtls_context, const session_t *session,
+static int get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
                         dtls_credentials_type_t type, const unsigned char *id, size_t id_len,
                         unsigned char *result, size_t result_length)
 {
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    keystore_item_t *psk;
+    ssize_t length;
+
     DBG("%s: type=%d", __func__, type);
     switch(type)
     {
@@ -49,12 +53,39 @@ static int get_psk_info(struct dtls_context_t *dtls_context, const session_t *se
         return 0;
     case DTLS_PSK_IDENTITY:
         DBG("type=IDENTITY, id=%s", id);
-        break;
+        if (id_len) {
+            DBG("got psk_identity_hint: '%.*s'", (int)id_len, id);
+        }
+
+        psk = keystore_find_psk(ctx->keystore, id, id_len, NULL, 0);
+        if (!psk) {
+            ERR("no PSK identity");
+            return dtls_alert_fatal_create(DTLS_ALERT_CLOSE_NOTIFY);
+        }
+
+        length = psk_set_identity(psk, result, result_length);
+        if (length < 0) {
+            ERR("cannot set psk_identity -- buffer too small");
+            return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
+        }
+        return length;
     case DTLS_PSK_KEY:
         DBG("type=KEY");
-        break;
+        psk = keystore_find_psk(ctx->keystore, NULL, 0, id, id_len);
+        if (!psk) {
+            ERR("PSK for unknown id requested");
+            return dtls_alert_fatal_create(DTLS_ALERT_HANDSHAKE_FAILURE);
+        }
+
+        length = psk_set_key(psk, result, result_length);
+        if (length < 0) {
+            ERR("cannot set psk -- buffer too small");
+            return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
+        }
+
+        return length;
     }
-    return -1;
+    return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
 }
 
 static dtls_handler_t dtls_cb = {
@@ -162,6 +193,15 @@ int proxy_init(proxy_context_t *ctx,
         return -1;
     }
 
+    ctx->keystore = new_keystore();
+    keystore_item_t *item = keystore_new_psk(NULL, 0, psk->id, strlen(psk->id),
+                                             psk->key, strlen(psk->key), 0);
+    if ((NULL==ctx->keystore) || (NULL==item)) {
+        ERR("failed to create psk keystore");
+        return -1;
+    }
+
+    keystore_store_item(ctx->keystore, item);
     dtls_set_handler(ctx->dtls_ctx, &dtls_cb);
 
     return 0;
