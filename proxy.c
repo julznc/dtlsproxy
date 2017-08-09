@@ -16,11 +16,52 @@
 #include "utils.h"
 
 
+static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
+                             session_t *session, uint8 *data, size_t len)
+{
+    DBG("%s: len=%lu", __func__, len);
+    return 0;
+}
+
+static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
+                          session_t *session, uint8 *data, size_t len)
+{
+    DBG("%s: len=%lu", __func__, len);
+    return 0;
+}
+
+static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
+                      dtls_alert_level_t level, unsigned short code)
+{
+    DBG("%s: alert=%d, code=%u", __func__, level, code);
+    return 0;
+}
+
+static int get_psk_info(struct dtls_context_t *dtls_context, const session_t *session,
+                        dtls_credentials_type_t type, const unsigned char *id, size_t id_len,
+                        unsigned char *result, size_t result_length)
+{
+    DBG("%s: type=%d", __func__, type);
+    switch(type)
+    {
+    case DTLS_PSK_HINT:
+        DBG("type=HINT");
+        return 0;
+    case DTLS_PSK_IDENTITY:
+        DBG("type=IDENTITY, id=%s", id);
+        break;
+    case DTLS_PSK_KEY:
+        DBG("type=KEY");
+        break;
+    }
+    return -1;
+}
+
 static dtls_handler_t dtls_cb = {
-  .write = NULL,
-  .read  = NULL,
-  .event = NULL,
-  .get_psk_info = NULL,
+  .write = dtls_send_to_peer,
+  .read  = dtls_read_from_peer,
+  .event = dtls_event,
+  .get_psk_info = get_psk_info,
 #ifdef DTLS_ECC
   .get_ecdsa_key = NULL,
   .verify_ecdsa_key = NULL
