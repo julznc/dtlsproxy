@@ -4,6 +4,7 @@
 #include "tinydtls.h"
 #include "dtls.h"
 #include "keystore.h"
+#include "address.h"
 
 typedef struct proxy_option {
     char *listen_host;
@@ -21,6 +22,7 @@ typedef struct proxy_psk {
 
 typedef struct proxy_context {
     const proxy_option_t *options;
+    endpoint_t *endpoint;
     keystore_t *keystore;
     dtls_context_t *dtls_ctx;
     int listen_fd;
