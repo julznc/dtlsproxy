@@ -25,7 +25,6 @@ typedef struct proxy_context {
     endpoint_t *endpoint;
     keystore_t *keystore;
     dtls_context_t *dtls_ctx;
-    int listen_fd;
 } proxy_context_t;
 
 

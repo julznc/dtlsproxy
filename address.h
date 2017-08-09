@@ -3,6 +3,9 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+
 
 typedef struct address_t {
     socklen_t size;
@@ -28,6 +31,10 @@ typedef struct endpoint_t {
     int flags;
 } endpoint_t;
 
-int resolve_address(const char *host, const char *port, struct sockaddr *dst);
+
+endpoint_t *new_endpoint(const address_t *addr);
+void detach_endpoint(endpoint_t *endpoint);
+void attach_endpoint(struct proxy_context *ctx, endpoint_t *endpoint);
+
 
 #endif // ADDRESS_H

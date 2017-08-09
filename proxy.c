@@ -111,46 +111,35 @@ int proxy_init(proxy_context_t *ctx,
     DBG("listen = %s:%s", ctx->options->listen_host, ctx->options->listen_port);
     DBG("psk = %s:%s", psk->id, psk->key);
 
-    struct sockaddr_in6 listen_addr;
-    memset(&listen_addr, 0, sizeof(struct sockaddr_in6));
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+    hints.ai_socktype = SOCK_DGRAM; /* UDP */
+    hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
 
-    if (resolve_address(opt->listen_host, opt->listen_port,
-                        (struct sockaddr *)&listen_addr) < 0) {
-        ERR("failed to resolve listen address");
+    struct addrinfo *result;
+    if (0 != getaddrinfo(opt->listen_host, opt->listen_port, &hints, &result) ) {
+        ERR("getaddrinfo() failed");
         return -1;
     }
 
-    ctx->listen_fd = socket(listen_addr.sin6_family, SOCK_DGRAM, 0);
+    address_t addr;
+    endpoint_t *endpoint = NULL;
+    for (struct addrinfo *rp = result; rp != NULL; rp = rp->ai_next) {
+        if (rp->ai_addrlen <= (int)sizeof(addr.addr)) {
+            memset(&addr, 0, sizeof(address_t));
+            addr.size = rp->ai_addrlen;
+            memcpy(&addr.addr, rp->ai_addr, rp->ai_addrlen);
 
-    if (ctx->listen_fd <= 0) {
-        ERR("socket: %s", strerror(errno));
-        return -1;
+            endpoint = new_endpoint(&addr);
+            if (NULL==endpoint) {
+                ERR("unable to create listen endpoint");
+                return -1;
+            }
+            attach_endpoint(ctx, endpoint);
+        }
     }
-
-    if (fcntl(ctx->listen_fd, F_SETFL, O_NONBLOCK) < 0) {
-        ERR("socket: %s", strerror(errno));
-        return -1;
-    }
-
-    int on = 1;
-    if (setsockopt(ctx->listen_fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) ) < 0) {
-        ERR("setsockopt SO_REUSEADDR: %s", strerror(errno));
-    }
-
-    on = 1;
-  #ifdef IPV6_RECVPKTINFO
-    if (setsockopt(ctx->listen_fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
-  #else /* IPV6_RECVPKTINFO */
-    if (setsockopt(ctx->listen_fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
-  #endif /* IPV6_RECVPKTINFO */
-      ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
-    }
-
-    if (bind(ctx->listen_fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
-        ERR("bind: %s", strerror(errno));
-        return -1;
-    }
-
+    freeaddrinfo(result);
 
     dtls_init();
     ctx->dtls_ctx = dtls_new_context(ctx);
@@ -182,7 +171,7 @@ static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
     session.size = sizeof(session.addr);
 
     static uint8 buf[DTLS_MAX_BUF];
-    int len = recvfrom(ctx->listen_fd, buf, sizeof(buf), MSG_TRUNC,
+    int len = recvfrom(ctx->endpoint->handle.fd, buf, sizeof(buf), MSG_TRUNC,
                        &session.addr.sa, &session.size);
 
     if (len < 0) {
@@ -206,12 +195,12 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
     static int count = 0;
 
     DBG("%s fds: %d,%d revents: 0x%02x count: %d",
-        __func__, w->fd, ctx->listen_fd, revents, count);
+        __func__, w->fd, ctx->endpoint->handle.fd, revents, count);
     count++;
 
     struct sockaddr_storage local_addr;
     socklen_t local_addr_size = sizeof(local_addr);
-    int ret = getsockname(ctx->listen_fd, (struct sockaddr *)&local_addr, &local_addr_size);
+    int ret = getsockname(ctx->endpoint->handle.fd, (struct sockaddr *)&local_addr, &local_addr_size);
     if (ret < 0) {
         ERR("getsockname()=%d errno=%d", ret, errno);
         return;
@@ -222,8 +211,8 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
 {
-    DBG("%s fd=%d", __func__, ctx->listen_fd);
-    ev_io_init(w, proxy_cb, ctx->listen_fd, EV_READ);
+    DBG("%s fd=%d", __func__, ctx->endpoint->handle.fd);
+    ev_io_init(w, proxy_cb, ctx->endpoint->handle.fd, EV_READ);
     w->data = ctx;
     ev_io_start(EV_A_ w);
 }
@@ -246,10 +235,7 @@ void proxy_deinit(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
     assert(NULL!=ctx);
-    if (ctx->listen_fd > 0) {
-        close(ctx->listen_fd);
-        ctx->listen_fd = -1;
-    }
+
     if(NULL != ctx->dtls_ctx) {
         dtls_free_context(ctx->dtls_ctx);
         ctx->dtls_ctx = NULL;
