@@ -92,10 +92,12 @@ int main(int argc, char *argv[])
     proxy_context_t context;
 
     if (0!=proxy_init(&context, &options, &psk)) {
-        DBG("proxy init failed");
+        ERR("proxy init failed");
+        proxy_deinit(&context);
         return -1;
     }
 
+    proxy_deinit(&context);
     DBG("%s exit", argv[argc-argc]);
     return 0;
 }

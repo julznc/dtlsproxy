@@ -26,5 +26,7 @@ int proxy_init(proxy_context_t *ctx,
                const proxy_option_t *opt,
                const proxy_psk_t *psk);
 
+void proxy_deinit(proxy_context_t *ctx);
+
 #endif // PROXY_H
 

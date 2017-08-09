@@ -1,6 +1,8 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -64,15 +66,45 @@ int proxy_init(proxy_context_t *ctx,
 
     if (resolve_address(opt->listen_host, opt->listen_port,
                         (struct sockaddr *)&listen_addr) < 0) {
+        ERR("failed to resolve listen address");
         return -1;
     }
 
     ctx->listen_fd = socket(listen_addr.sin6_family, SOCK_DGRAM, 0);
 
-    if (ctx->listen_fd < 0) {
-        DBG("socket: %s", strerror(errno));
+    if (ctx->listen_fd <= 0) {
+        ERR("socket: %s", strerror(errno));
         return -1;
     }
 
+    if (fcntl(ctx->listen_fd, F_SETFL, O_NONBLOCK) < 0) {
+        ERR("socket: %s", strerror(errno));
+        return -1;
+    }
+
+    int on = 1;
+    if (setsockopt(ctx->listen_fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) ) < 0) {
+        ERR("setsockopt SO_REUSEADDR: %s", strerror(errno));
+    }
+
+    on = 1;
+  #ifdef IPV6_RECVPKTINFO
+    if (setsockopt(ctx->listen_fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
+  #else /* IPV6_RECVPKTINFO */
+    if (setsockopt(ctx->listen_fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
+  #endif /* IPV6_RECVPKTINFO */
+      ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
+    }
+
     return 0;
+}
+
+void proxy_deinit(proxy_context_t *ctx)
+{
+    DBG("%s", __func__);
+    assert(NULL!=ctx);
+    if (ctx->listen_fd > 0) {
+        close(ctx->listen_fd);
+        ctx->listen_fd = 0;
+    }
 }
