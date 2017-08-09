@@ -1,6 +1,8 @@
 #ifndef PROXY_H
 #define PROXY_H
 
+#include "tinydtls.h"
+#include "dtls.h"
 
 typedef struct proxy_option {
     char *listen_host;
@@ -18,6 +20,7 @@ typedef struct proxy_psk {
 
 typedef struct proxy_context {
     const proxy_option_t *options;
+    dtls_context_t *dtls_ctx;
     int listen_fd;
 } proxy_context_t;
 

@@ -9,11 +9,21 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#include "tinydtls.h"
-#include "dtls.h"
 
 #include "proxy.h"
 #include "utils.h"
+
+
+static dtls_handler_t dtls_cb = {
+  .write = NULL,
+  .read  = NULL,
+  .event = NULL,
+  .get_psk_info = NULL,
+#ifdef DTLS_ECC
+  .get_ecdsa_key = NULL,
+  .verify_ecdsa_key = NULL
+#endif /* DTLS_ECC */
+};
 
 static int resolve_address(const char *host, const char *port, struct sockaddr *dst)
 {
@@ -96,6 +106,16 @@ int proxy_init(proxy_context_t *ctx,
       ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
     }
 
+
+    dtls_init();
+    ctx->dtls_ctx = dtls_new_context(ctx);
+    if(NULL == ctx->dtls_ctx) {
+        ERR("failed to create dtls context");
+        return -1;
+    }
+
+    dtls_set_handler(ctx->dtls_ctx, &dtls_cb);
+
     return 0;
 }
 
@@ -105,6 +125,10 @@ void proxy_deinit(proxy_context_t *ctx)
     assert(NULL!=ctx);
     if (ctx->listen_fd > 0) {
         close(ctx->listen_fd);
-        ctx->listen_fd = 0;
+        ctx->listen_fd = -1;
+    }
+    if(NULL != ctx->dtls_ctx) {
+        dtls_free_context(ctx->dtls_ctx);
+        ctx->dtls_ctx = NULL;
     }
 }
