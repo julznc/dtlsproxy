@@ -1,4 +1,7 @@
 
+#include "tinydtls.h"
+#include "dtls.h"
+
 #include "utils.h"
 
 int main(int argc, char *argv[])
