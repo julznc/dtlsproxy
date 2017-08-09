@@ -9,13 +9,16 @@ typedef struct proxy_option {
     char *backend_port;
 } proxy_option_t;
 
+
 typedef struct proxy_psk {
     char *id;
     char *key;
 } proxy_psk_t;
 
+
 typedef struct proxy_context {
     const proxy_option_t *options;
+    int listen_fd;
 } proxy_context_t;
 
 
