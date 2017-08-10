@@ -35,72 +35,86 @@ int address_equals(const address_t *a, const address_t *b)
    return 0;
 }
 
-endpoint_t *new_endpoint(const address_t *addr)
+int create_socket(const address_t *addr, const address_t *bind_addr)
 {
-    int sockfd;
-    int on = 1;
-    endpoint_t *ep = NULL;
-
-    sockfd = socket(addr->addr.sa.sa_family, SOCK_DGRAM, 0);
+    int sockfd = socket(addr->addr.sa.sa_family, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-      ERR("new_endpoint: socket");
-      return NULL;
+        ERR("failed to create socket");
+        return -1;
     }
 
     if (fcntl(sockfd, F_SETFL, O_NONBLOCK) < 0) {
-      ERR("new_endpoint: %s", strerror(errno));
-      goto error;
+        ERR("set nonblock failed: %s", strerror(errno));
+        close (sockfd);
+        return -1;
     }
 
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
-      ERR("new_endpoint: setsockopt SO_REUSEADDR");
+    int on = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+        ERR("new_endpoint: setsockopt SO_REUSEADDR");
+    }
 
     on = 1;
-    switch(addr->addr.sa.sa_family) {
+    switch(addr->addr.sa.sa_family)
+    {
     case AF_INET:
-      if (setsockopt(sockfd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0)
-        ERR("new_endpoint: setsockopt IP_PKTINFO");
-      break;
+        if (setsockopt(sockfd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0) {
+            ERR("setsockopt IP_PKTINFO failed");
+        }
+        break;
     case AF_INET6:
-  #ifdef IPV6_RECVPKTINFO
-      if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on)) < 0)
-        ERR("new_endpoint: setsockopt IPV6_RECVPKTINFO");
-  #else /* IPV6_RECVPKTINFO */
-      if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on)) < 0)
-        ERR("new_endpoint: setsockopt IPV6_PKTINFO");
-  #endif /* IPV6_RECVPKTINFO */
-      break;
+#ifdef IPV6_RECVPKTINFO
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on)) < 0) {
+            ERR("setsockopt IPV6_RECVPKTINFO failed");
+        }
+#else /* IPV6_RECVPKTINFO */
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on)) < 0) {
+            ERR("setsockopt IPV6_PKTINFO failed");
+        }
+#endif /* IPV6_RECVPKTINFO */
+        break;
     default:
-      ERR("new_endpoint: unsupported sa_family");
+        ERR("setsockopt: unsupported sa_family");
+        break;
     }
 
-    if (bind(sockfd, &addr->addr.sa, addr->size) < 0) {
-      ERR("new_endpoint: bind");
-      goto error;
+    if (bind(sockfd, &bind_addr->addr.sa, bind_addr->size) < 0) {
+        ERR("bind() failed: %s", strerror(errno));
+        close (sockfd);
+        return -1;
     }
 
-    ep = (endpoint_t *)malloc(sizeof(endpoint_t));
+    return sockfd;
+}
+
+endpoint_t *new_endpoint(const address_t *addr)
+{
+    int sockfd = create_socket(addr, addr);
+    if (sockfd < 0) {
+        ERR("new_endpoint: socket");
+        return NULL;
+    }
+
+    endpoint_t *ep = (endpoint_t *)malloc(sizeof(endpoint_t));
     if (!ep) {
-      ERR("new_endpoint: malloc");
-      goto error;
+        ERR("new_endpoint: malloc failed");
+        close (sockfd);
+        return NULL;
     }
 
     memset(ep, 0, sizeof(endpoint_t));
     ep->handle.fd = sockfd;
-    ep->flags = 0x0001;
+    ep->flags = 0x0001; // fix me
 
     ep->addr.size = addr->size;
     if (getsockname(sockfd, &ep->addr.addr.sa, &ep->addr.size) < 0) {
-      ERR("new_endpoint: cannot determine local address");
-      goto error;
+        ERR("new_endpoint: cannot determine local address");
+        close (sockfd);
+        free(ep);
+        return NULL;
     }
 
     return (endpoint_t *)ep;
-   error:
-
-    close (sockfd);
-    free(ep);
-    return NULL;
 }
 
 void free_endpoint(endpoint_t *ep)

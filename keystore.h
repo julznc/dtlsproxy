@@ -1,6 +1,7 @@
 #ifndef KEYSTORE_H
 #define KEYSTORE_H
 
+#include <stdint.h>
 #include <sys/types.h>
 
 #define KEYSTORE_RELEASE_REALM 0x01

@@ -33,6 +33,7 @@ typedef struct endpoint_t {
 
 
 int address_equals(const address_t *a, const address_t *b);
+int create_socket(const address_t *addr, const address_t *bind_addr);
 
 endpoint_t *new_endpoint(const address_t *addr);
 void free_endpoint(endpoint_t *ep);

@@ -204,6 +204,25 @@ static int handle_message(proxy_context_t *ctx,
     return -1;
 }
 
+int connect_to_new_client(const address_t *client, const address_t *local)
+{
+    int fd = create_socket(client, local);
+    if (fd < 0) {
+        ERR("client socket() failed");
+        return -1;
+    }
+
+    int err = connect(fd, &client->addr.sa, client->size);
+    if (0!=err) {
+        ERR("connect client failed");
+        close(fd);
+        return -1;
+    }
+
+    DBG("%s: fd=%d", __func__, fd);
+    return fd;
+}
+
 static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
     //DBG("%s revents=%X", __func__, revents);
