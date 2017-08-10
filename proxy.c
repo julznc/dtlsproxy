@@ -17,11 +17,9 @@
 static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
                              session_t *session, uint8 *data, size_t len)
 {
-    DBG("%s: len=%lu", __func__, len);
+    //DBG("%s: len=%lu", __func__, len);
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
     endpoint_t *local_interface;
-
-    DBG("ifindex = %u vs %u", ctx->endpoint->ifindex, session->ifindex);
 
     LL_SEARCH_SCALAR(ctx->endpoint, local_interface,
                      handle.fd, session->ifindex);
@@ -56,14 +54,14 @@ static int get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *sessio
     keystore_item_t *psk;
     ssize_t length;
 
-    DBG("%s: type=%d", __func__, type);
+    //DBG("%s: type=%d", __func__, type);
     switch(type)
     {
     case DTLS_PSK_HINT:
-        DBG("type=HINT");
+        //DBG("type=HINT");
         return 0;
     case DTLS_PSK_IDENTITY:
-        DBG("type=IDENTITY, id=%s", id);
+        //DBG("type=IDENTITY, id=%s", id);
         if (id_len) {
             DBG("got psk_identity_hint: '%.*s'", (int)id_len, id);
         }
@@ -81,7 +79,7 @@ static int get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *sessio
         }
         return length;
     case DTLS_PSK_KEY:
-        DBG("type=KEY");
+        //DBG("type=KEY");
         psk = keystore_find_psk(ctx->keystore, NULL, 0, id, id_len);
         if (!psk) {
             ERR("PSK for unknown id requested");
@@ -93,7 +91,7 @@ static int get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *sessio
             ERR("cannot set psk -- buffer too small");
             return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
         }
-        DBG("psk = '%s'", (char*)psk->entry.psk.key);
+        //DBG("psk = '%s'", (char*)psk->entry.psk.key);
         return length;
     }
     return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
@@ -180,7 +178,7 @@ static int handle_message(proxy_context_t *ctx,
                           const address_t *dst,
                           uint8 *data, size_t data_len)
 {
-    DBG("%s", __func__);
+    //DBG("%s", __func__);
     int is_new = 0;
     session_context_t *session = find_session(ctx->dtls_ctx, local_interface, dst);
 
@@ -195,7 +193,7 @@ static int handle_message(proxy_context_t *ctx,
 
     int res = dtls_handle_message(ctx->dtls_ctx->dtls, &session->dtls_session, data, data_len);
     if (res < 0) {
-        ERR("dtls_handle_message() failed");
+        ERR("dtls_handle_message() failed, new=%d", is_new);
         if (is_new) {
             free_session(ctx->dtls_ctx, session);
         }
@@ -208,30 +206,32 @@ static int handle_message(proxy_context_t *ctx,
 
 static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
-    DBG("%s revents=%X", __func__, revents);
+    //DBG("%s revents=%X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
+    int listen_fd = ctx->endpoint->handle.fd;
     static int count = 0;
 
     DBG("%s fds: %d,%d revents: 0x%02x count: %d",
-        __func__, w->fd, ctx->endpoint->handle.fd, revents, count);
+        __func__, w->fd, listen_fd, revents, count);
     count++;
 
-    struct sockaddr_storage local_addr;
-    socklen_t local_addr_size = sizeof(local_addr);
-    int ret = getsockname(ctx->endpoint->handle.fd, (struct sockaddr *)&local_addr, &local_addr_size);
+    session_t local;
+    memset(&local, 0, sizeof(session_t));
+    local.size = sizeof(local.addr);
+    int ret = getsockname(listen_fd, &local.addr.sa, &local.size);
     if (ret < 0) {
         ERR("getsockname()=%d errno=%d", ret, errno);
         return;
     }
 
-    session_t dtls_session;
-    unsigned char first_packet[DTLS_MAX_BUF];
-    size_t first_packet_len = 0;
+    session_t client;
+    unsigned char packet[DTLS_MAX_BUF];
+    size_t packet_len = 0;
 
-    memset(&dtls_session, 0, sizeof(session_t));
-    dtls_session.size = sizeof(dtls_session.addr);
-    ret = recvfrom(ctx->endpoint->handle.fd, first_packet, sizeof(first_packet), 0,
-                   &dtls_session.addr.sa, &dtls_session.size);
+    memset(&client, 0, sizeof(session_t));
+    client.size = sizeof(client.addr);
+    ret = recvfrom(listen_fd, packet, sizeof(packet), 0,
+                   &client.addr.sa, &client.size);
     if (ret < 0) {
         ERR("recvfrom() failed, errno = %d", errno);
         return;
@@ -241,10 +241,10 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
         return;
     }
 
-    first_packet_len = ret;
+    packet_len = ret;
 
-    handle_message(ctx, ctx->endpoint, (address_t*)&dtls_session,
-                   first_packet, first_packet_len);
+    handle_message(ctx, ctx->endpoint, (address_t*)&client,
+                   packet, packet_len);
 }
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
