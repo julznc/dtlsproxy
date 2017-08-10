@@ -9,7 +9,7 @@
 
 #include <ev.h>
 
-
+#include "utlist.h"
 #include "proxy.h"
 #include "utils.h"
 
@@ -18,7 +18,22 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
                              session_t *session, uint8 *data, size_t len)
 {
     DBG("%s: len=%lu", __func__, len);
-    return 0;
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    endpoint_t *local_interface;
+
+    DBG("ifindex = %u vs %u", ctx->endpoint->ifindex, session->ifindex);
+
+    LL_SEARCH_SCALAR(ctx->endpoint, local_interface,
+                     handle.fd, session->ifindex);
+    if (!local_interface) {
+        ERR("dtls_send_to_peer: cannot find local interface");
+        //return -3;
+    }
+
+    //return sendto(local_interface->handle.fd, data, len, MSG_DONTWAIT,
+    //      &session->addr.sa, session->size);
+    return sendto(ctx->endpoint->handle.fd, data, len, MSG_DONTWAIT,
+          &session->addr.sa, session->size);
 }
 
 static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
@@ -80,7 +95,7 @@ static int get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *sessio
             ERR("cannot set psk -- buffer too small");
             return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
         }
-
+        DBG("psk = '%s'", (char*)psk->entry.psk.key);
         return length;
     }
     return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
@@ -142,7 +157,7 @@ int proxy_init(proxy_context_t *ctx,
     freeaddrinfo(result);
 
     dtls_init();
-    ctx->dtls_ctx = dtls_new_context(ctx);
+    ctx->dtls_ctx = new_dtls_context(ctx);
     if(NULL == ctx->dtls_ctx) {
         ERR("failed to create dtls context");
         return -1;
@@ -157,12 +172,12 @@ int proxy_init(proxy_context_t *ctx,
     }
 
     keystore_store_item(ctx->keystore, item);
-    dtls_set_handler(ctx->dtls_ctx, &dtls_cb);
+    dtls_set_handler(ctx->dtls_ctx->dtls, &dtls_cb);
 
     return 0;
 }
 
-static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
+static int handle_message(struct dtls_context_t *dtls_ctx)
 {
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
 
@@ -206,7 +221,7 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
         return;
     }
 
-    dtls_handle_read(ctx->dtls_ctx);
+    handle_message(ctx->dtls_ctx->dtls);
 }
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
@@ -237,7 +252,7 @@ void proxy_deinit(proxy_context_t *ctx)
     assert(NULL!=ctx);
 
     if(NULL != ctx->dtls_ctx) {
-        dtls_free_context(ctx->dtls_ctx);
+        free_dtls_context(ctx->dtls_ctx);
         ctx->dtls_ctx = NULL;
     }
 }

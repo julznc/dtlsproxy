@@ -1,4 +1,5 @@
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -11,6 +12,28 @@
 #include "proxy.h"
 #include "utils.h"
 
+
+int address_equals(const address_t *a, const address_t *b)
+{
+    assert(a); assert(b);
+
+    if (a->size != b->size || a->addr.sa.sa_family != b->addr.sa.sa_family) {
+        return 0;
+    }
+
+   switch (a->addr.sa.sa_family)
+   {
+   case AF_INET:
+       return ( (a->addr.sin.sin_port == b->addr.sin.sin_port) &&
+                (memcmp(&a->addr.sin.sin_addr, &b->addr.sin.sin_addr,
+                        sizeof(struct in_addr)) == 0));
+   case AF_INET6:
+       return ( (a->addr.sin6.sin6_port == b->addr.sin6.sin6_port) &&
+                (memcmp(&a->addr.sin6.sin6_addr, &b->addr.sin6.sin6_addr,
+                        sizeof(struct in6_addr)) == 0));
+   }
+   return 0;
+}
 
 endpoint_t *new_endpoint(const address_t *addr)
 {

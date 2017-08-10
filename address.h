@@ -32,6 +32,8 @@ typedef struct endpoint_t {
 } endpoint_t;
 
 
+int address_equals(const address_t *a, const address_t *b);
+
 endpoint_t *new_endpoint(const address_t *addr);
 void detach_endpoint(endpoint_t *endpoint);
 void attach_endpoint(struct proxy_context *ctx, endpoint_t *endpoint);
