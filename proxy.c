@@ -255,18 +255,30 @@ static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
     ev_io_start(EV_A_ w);
 }
 
-int proxy_loop(proxy_context_t *ctx)
+static struct ev_loop *loop = NULL;
+static ev_io proxy_watcher;
+
+int proxy_run(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
 
-    ev_io proxy_watcher;
-    struct ev_loop *loop = ev_default_loop(0);
+    loop = ev_default_loop(0);
     start_listen_io(EV_A_ &proxy_watcher, ctx);
 
-    DBG("call libev loop()");
-    ev_loop(EV_A_ 0);
+    //DBG("call libev run()");
+    ev_run(EV_A_ 0);
 
     return 0;
+}
+
+void proxy_exit(void)
+{
+    DBG("%s", __func__);
+
+    ev_io_stop(EV_A_ &proxy_watcher);
+
+    //DBG("call libev break()");
+    ev_break(EV_A_ EVBREAK_ALL);
 }
 
 void proxy_deinit(proxy_context_t *ctx)
@@ -277,5 +289,17 @@ void proxy_deinit(proxy_context_t *ctx)
     if(NULL != ctx->dtls_ctx) {
         free_dtls_context(ctx->dtls_ctx);
         ctx->dtls_ctx = NULL;
+    }
+
+    if(NULL != ctx->keystore) {
+        free_keystore(ctx->keystore);
+        ctx->keystore = NULL;
+    }
+
+    if(NULL != ctx->endpoint) {
+        endpoint_t *ep, *tmp;
+        LL_FOREACH_SAFE(ctx->endpoint, ep, tmp) {
+            free_endpoint(ep);
+        }
     }
 }

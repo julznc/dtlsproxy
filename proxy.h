@@ -32,7 +32,9 @@ int proxy_init(proxy_context_t *ctx,
                const proxy_option_t *opt,
                const proxy_psk_t *psk);
 
-int proxy_loop(proxy_context_t *ctx);
+int proxy_run(proxy_context_t *ctx);
+
+void proxy_exit(void);
 
 void proxy_deinit(proxy_context_t *ctx);
 

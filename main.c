@@ -1,6 +1,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <getopt.h>
 
 #include "proxy.h"
@@ -74,6 +75,17 @@ static void parse_opts(int argc, char *argv[])
     }
 }
 
+static void handle_sigint(int signum)
+{
+    static int done = 0;
+    //DBG("%s done=%d", __func__, done);
+    if (done) {
+        return;
+    }
+    proxy_exit();
+    done = 1;
+}
+
 int main(int argc, char *argv[])
 {
     DBG("%s started", argv[argc-argc]);
@@ -97,7 +109,8 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    proxy_loop(&context);
+    signal(SIGINT, handle_sigint);
+    proxy_run(&context);
 
     proxy_deinit(&context);
     DBG("%s exit", argv[argc-argc]);

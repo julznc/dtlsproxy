@@ -103,6 +103,16 @@ endpoint_t *new_endpoint(const address_t *addr)
     return NULL;
 }
 
+void free_endpoint(endpoint_t *ep)
+{
+    if(ep) {
+        if (ep->handle.fd >= 0) {
+            close(ep->handle.fd);
+        }
+        free(ep);
+    }
+}
+
 void detach_endpoint(endpoint_t *endpoint)
 {
     if (endpoint->context != NULL) {
