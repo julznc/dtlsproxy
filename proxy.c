@@ -27,13 +27,11 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
                      handle.fd, session->ifindex);
     if (!local_interface) {
         ERR("dtls_send_to_peer: cannot find local interface");
-        //return -3;
+        return -3;
     }
 
-    //return sendto(local_interface->handle.fd, data, len, MSG_DONTWAIT,
-    //      &session->addr.sa, session->size);
-    return sendto(ctx->endpoint->handle.fd, data, len, MSG_DONTWAIT,
-          &session->addr.sa, session->size);
+    return sendto(local_interface->handle.fd, data, len, MSG_DONTWAIT,
+                  &session->addr.sa, session->size);
 }
 
 static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
@@ -177,30 +175,35 @@ int proxy_init(proxy_context_t *ctx,
     return 0;
 }
 
-static int handle_message(struct dtls_context_t *dtls_ctx)
+static int handle_message(proxy_context_t *ctx,
+                          const endpoint_t *local_interface,
+                          const address_t *dst,
+                          uint8 *data, size_t data_len)
 {
-    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    DBG("%s", __func__);
+    int is_new = 0;
+    session_context_t *session = find_session(ctx->dtls_ctx, local_interface, dst);
 
-    session_t session;
-    memset(&session, 0, sizeof(session_t));
-    session.size = sizeof(session.addr);
-
-    static uint8 buf[DTLS_MAX_BUF];
-    int len = recvfrom(ctx->endpoint->handle.fd, buf, sizeof(buf), MSG_TRUNC,
-                       &session.addr.sa, &session.size);
-
-    if (len < 0) {
-        perror("recvfrom");
-        return -1;
-    } else {
-        DBG("got %d bytes from port %d", len,
-            ntohs(session.addr.sin6.sin6_port));
-        if (sizeof(buf) < len) {
-            ERR("packet was truncated (%d bytes lost)\n", len - (int)sizeof(buf));
+    if (NULL==session) {
+        session = new_session(ctx->dtls_ctx, local_interface, dst);
+        if (NULL==session) {
+            ERR("cannot allocate new session");
+            return -1;
         }
+        is_new = 1;
     }
 
-    return dtls_handle_message(dtls_ctx, &session, buf, len);
+    int res = dtls_handle_message(ctx->dtls_ctx->dtls, &session->dtls_session, data, data_len);
+    if (res < 0) {
+        ERR("dtls_handle_message() failed");
+        if (is_new) {
+            free_session(ctx->dtls_ctx, session);
+        }
+        return -1;
+    }
+
+    //return res;
+    return -1;
 }
 
 static void proxy_cb(EV_P_ ev_io *w, int revents)
@@ -221,7 +224,27 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
         return;
     }
 
-    handle_message(ctx->dtls_ctx->dtls);
+    session_t dtls_session;
+    unsigned char first_packet[DTLS_MAX_BUF];
+    size_t first_packet_len = 0;
+
+    memset(&dtls_session, 0, sizeof(session_t));
+    dtls_session.size = sizeof(dtls_session.addr);
+    ret = recvfrom(ctx->endpoint->handle.fd, first_packet, sizeof(first_packet), 0,
+                   &dtls_session.addr.sa, &dtls_session.size);
+    if (ret < 0) {
+        ERR("recvfrom() failed, errno = %d", errno);
+        return;
+    } else if (0 == ret) {
+        ERR("recvfrom() returned 0");
+        //continue;
+        return;
+    }
+
+    first_packet_len = ret;
+
+    handle_message(ctx, ctx->endpoint, (address_t*)&dtls_session,
+                   first_packet, first_packet_len);
 }
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
