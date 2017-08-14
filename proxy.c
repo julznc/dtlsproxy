@@ -7,8 +7,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#include <ev.h>
-
 #include "utlist.h"
 #include "proxy.h"
 #include "utils.h"
@@ -293,14 +291,13 @@ static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
 }
 
 static struct ev_loop *loop = NULL;
-static ev_io proxy_watcher;
 
 int proxy_run(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
 
     loop = ev_default_loop(0);
-    start_listen_io(EV_A_ &proxy_watcher, ctx);
+    start_listen_io(EV_A_ &ctx->watcher, ctx);
 
     //DBG("call libev run()");
     ev_run(EV_A_ 0);
@@ -308,11 +305,11 @@ int proxy_run(proxy_context_t *ctx)
     return 0;
 }
 
-void proxy_exit(void)
+void proxy_exit(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
 
-    ev_io_stop(EV_A_ &proxy_watcher);
+    ev_io_stop(EV_A_ &ctx->watcher);
 
     //DBG("call libev break()");
     ev_break(EV_A_ EVBREAK_ALL);

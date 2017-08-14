@@ -14,6 +14,8 @@ static char *backend_port = NULL;
 static char *dtls_id = NULL;
 static char *dtls_key = NULL;
 
+static proxy_context_t context;
+
 static void print_usage(const char *prog)
 {
     printf("Usage: %s [-blik]\n", prog);
@@ -82,7 +84,7 @@ static void handle_sigint(int signum)
     if (done) {
         return;
     }
-    proxy_exit();
+    proxy_exit(&context);
     done = 1;
 }
 
@@ -100,8 +102,6 @@ int main(int argc, char *argv[])
     proxy_psk_t psk = {
         dtls_id, dtls_key
     };
-
-    proxy_context_t context;
 
     if (0!=proxy_init(&context, &options, &psk)) {
         ERR("proxy init failed");
