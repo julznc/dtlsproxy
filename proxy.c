@@ -14,6 +14,53 @@
 #include "utils.h"
 
 
+static int connect_to_new_client(const address_t *client, const address_t *local)
+{
+    int fd = create_socket(client, local);
+    if (fd < 0) {
+        ERR("client socket() failed");
+        return -1;
+    }
+
+    int err = connect(fd, &client->addr.sa, client->size);
+    if (0!=err) {
+        ERR("connect client failed");
+        close(fd);
+        return -1;
+    }
+
+    DBG("%s: fd=%d", __func__, fd);
+    return fd;
+}
+
+static int connect_to_backend(const proxy_context_t *ctx)
+{
+    address_t backend;
+    memset(&backend, 0, sizeof(backend));
+
+    int len = resolve_address(ctx->options->backend_host, ctx->options->backend_port, &backend);
+    if (len < 1) {
+        ERR("unable to resolve backend address");
+        return -1;
+    }
+
+    int fd = create_socket(&backend, &backend);
+    if (fd < 0) {
+        ERR("backend socket() failed");
+        return -1;
+    }
+
+    int err = connect(fd, &backend.addr.sa, backend.size);
+    if (0!=err) {
+        ERR("connect backend failed");
+        close(fd);
+        return -1;
+    }
+
+    DBG("%s: fd=%d", __func__, fd);
+    return fd;
+}
+
 static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
                              session_t *session, uint8 *data, size_t len)
 {
@@ -36,7 +83,10 @@ static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
 static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
                       dtls_alert_level_t level, unsigned short code)
 {
-    DBG("%s: alert=%d, code=%u", __func__, level, code);
+    //DBG("%s: alert=%d, code=%u", __func__, level, code);
+
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
 
     switch (code)
     {
@@ -45,12 +95,35 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         break;
     case DTLS_EVENT_CONNECTED:
         DBG("%s: connected", __func__);
+        DBG("%s: session=%lX", __func__, (unsigned long)sc);
+        if (NULL==sc) {
+            sc = new_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
+            if (NULL==sc) {
+                ERR("cannot allocate new session");
+                return -1;
+            }
+            sc->client_fd = connect_to_new_client((address_t*)dtls_session, &ctx->listen_addr);
+            if (sc->client_fd <= 0) {
+                free_session(ctx, sc);
+                return -1;
+            }
+            sc->backend_fd = connect_to_backend(ctx);
+            if (sc->backend_fd <= 0) {
+                free_session(ctx, sc);
+                return -1;
+            }
+            DBG("todo: start session");
+        }
         break;
     case DTLS_EVENT_RENEGOTIATE:
         DBG("%s: renegotiate", __func__);
         break;
     default:
         DBG("%s: unknown event=%u (alert=%d)", __func__, code, level);
+        if ((DTLS_ALERT_LEVEL_FATAL==level) && (NULL!=sc)) {
+            free_session(ctx, sc);
+            return -1;
+        }
         break;
     }
 
@@ -133,16 +206,16 @@ int proxy_init(proxy_context_t *ctx,
     DBG("listen = %s:%s", ctx->options->listen_host, ctx->options->listen_port);
     DBG("psk = %s:%s", psk->id, psk->key);
 
-    address_t listen_addr;
+    memset(&ctx->listen_addr, 0, sizeof(address_t));
     int len = resolve_address(ctx->options->listen_host,
                               ctx->options->listen_port,
-                              &listen_addr);
+                              &ctx->listen_addr);
     if (len < 1) {
         ERR("failed to resolve listen host");
         return -1;
     }
 
-    ctx->listen_fd = create_socket(&listen_addr, &listen_addr);
+    ctx->listen_fd = create_socket(&ctx->listen_addr, &ctx->listen_addr);
     if (ctx->listen_fd < 0) {
         ERR("failed to create listen socket");
         return -1;
@@ -167,55 +240,6 @@ int proxy_init(proxy_context_t *ctx,
     dtls_set_handler(ctx->dtls, &dtls_cb);
 
     return 0;
-}
-
-static int handle_message(proxy_context_t *ctx,
-                          const address_t *dst,
-                          uint8 *data, size_t data_len)
-{
-    //DBG("%s", __func__);
-    int is_new = 0;
-    session_context_t *session = find_session(ctx, ctx->listen_fd, dst);
-
-    if (NULL==session) {
-        session = new_session(ctx, ctx->listen_fd, dst);
-        if (NULL==session) {
-            ERR("cannot allocate new session");
-            return -1;
-        }
-        is_new = 1;
-    }
-
-    int res = dtls_handle_message(ctx->dtls, &session->dtls_session, data, data_len);
-    if (res < 0) {
-        ERR("dtls_handle_message() failed, new=%d", is_new);
-        if (is_new) {
-            free_session(ctx, session);
-        }
-        return -1;
-    }
-
-    //return res;
-    return -1;
-}
-
-int connect_to_new_client(const address_t *client, const address_t *local)
-{
-    int fd = create_socket(client, local);
-    if (fd < 0) {
-        ERR("client socket() failed");
-        return -1;
-    }
-
-    int err = connect(fd, &client->addr.sa, client->size);
-    if (0!=err) {
-        ERR("connect client failed");
-        close(fd);
-        return -1;
-    }
-
-    DBG("%s: fd=%d", __func__, fd);
-    return fd;
 }
 
 static void proxy_cb(EV_P_ ev_io *w, int revents)
@@ -256,7 +280,8 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
     packet_len = ret;
 
-    handle_message(ctx, (address_t*)&client, packet, packet_len);
+    //handle_message(ctx, (address_t*)&client, packet, packet_len);
+    dtls_handle_message(ctx->dtls, &client, packet, packet_len);
 }
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)

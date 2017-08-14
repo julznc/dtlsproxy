@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <unistd.h>
 
 #include "session.h"
 #include "proxy.h"
@@ -55,6 +56,12 @@ void free_session(struct proxy_context *ctx,
                   session_context_t *session)
 {
     if (ctx && session) {
+        if (session->client_fd > 0) {
+            close(session->client_fd);
+        }
+        if (session->backend_fd > 0) {
+            close(session->backend_fd);
+        }
         LL_DELETE(ctx->sessions, session);
         free(session);
     }

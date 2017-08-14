@@ -7,9 +7,11 @@
 #include "address.h"
 
 
-typedef struct session_context_t {
+typedef struct session_context {
+    struct session_context *next;
     session_t dtls_session;
-    struct session_context_t *next;
+    int client_fd;
+    int backend_fd;
 } session_context_t;
 
 struct proxy_context;
