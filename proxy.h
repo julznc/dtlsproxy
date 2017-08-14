@@ -23,7 +23,8 @@ typedef struct proxy_psk {
 typedef struct proxy_context {
     const proxy_option_t *options;
     keystore_t *keystore;
-    proxy_dtls_context_t *dtls_ctx;
+    dtls_context_t *dtls;
+    session_context_t *sessions;
     int listen_fd;
 } proxy_context_t;
 

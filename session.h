@@ -12,23 +12,15 @@ typedef struct session_context_t {
     struct session_context_t *next;
 } session_context_t;
 
-/* encapsulates the tinydtls context object */
-typedef struct proxy_dtls_context_t {
-    dtls_context_t *dtls;
-    session_context_t *sessions;
-} proxy_dtls_context_t;
+struct proxy_context;
 
-
-session_context_t *new_session(proxy_dtls_context_t *dtls_ctx,
+session_context_t *new_session(struct proxy_context *ctx,
                                int sockfd, const address_t *remote);
 
-session_context_t *find_session(proxy_dtls_context_t *dtls_ctx,
+session_context_t *find_session(struct proxy_context *ctx,
                                 int sockfd, const address_t *dst);
 
-void free_session(proxy_dtls_context_t *dtls_ctx,
+void free_session(struct proxy_context *ctx,
                   session_context_t *session);
-
-proxy_dtls_context_t *new_dtls_context(void *dtls_data);
-void free_dtls_context(proxy_dtls_context_t *dtls_ctx);
 
 #endif // SESSION_H

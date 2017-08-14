@@ -130,8 +130,8 @@ int proxy_init(proxy_context_t *ctx,
     }
 
     dtls_init();
-    ctx->dtls_ctx = new_dtls_context(ctx);
-    if(NULL == ctx->dtls_ctx) {
+    ctx->dtls = dtls_new_context(ctx);
+    if(NULL == ctx->dtls) {
         ERR("failed to create dtls context");
         return -1;
     }
@@ -145,7 +145,7 @@ int proxy_init(proxy_context_t *ctx,
     }
 
     keystore_store_item(ctx->keystore, item);
-    dtls_set_handler(ctx->dtls_ctx->dtls, &dtls_cb);
+    dtls_set_handler(ctx->dtls, &dtls_cb);
 
     return 0;
 }
@@ -156,10 +156,10 @@ static int handle_message(proxy_context_t *ctx,
 {
     //DBG("%s", __func__);
     int is_new = 0;
-    session_context_t *session = find_session(ctx->dtls_ctx, ctx->listen_fd, dst);
+    session_context_t *session = find_session(ctx, ctx->listen_fd, dst);
 
     if (NULL==session) {
-        session = new_session(ctx->dtls_ctx, ctx->listen_fd, dst);
+        session = new_session(ctx, ctx->listen_fd, dst);
         if (NULL==session) {
             ERR("cannot allocate new session");
             return -1;
@@ -167,11 +167,11 @@ static int handle_message(proxy_context_t *ctx,
         is_new = 1;
     }
 
-    int res = dtls_handle_message(ctx->dtls_ctx->dtls, &session->dtls_session, data, data_len);
+    int res = dtls_handle_message(ctx->dtls, &session->dtls_session, data, data_len);
     if (res < 0) {
         ERR("dtls_handle_message() failed, new=%d", is_new);
         if (is_new) {
-            free_session(ctx->dtls_ctx, session);
+            free_session(ctx, session);
         }
         return -1;
     }
@@ -279,9 +279,13 @@ void proxy_deinit(proxy_context_t *ctx)
     DBG("%s", __func__);
     assert(NULL!=ctx);
 
-    if(NULL != ctx->dtls_ctx) {
-        free_dtls_context(ctx->dtls_ctx);
-        ctx->dtls_ctx = NULL;
+    while(ctx->sessions) {
+        free_session(ctx, ctx->sessions);
+    }
+
+    if(NULL != ctx->dtls) {
+        dtls_free_context(ctx->dtls);
+        ctx->dtls = NULL;
     }
 
     if(NULL != ctx->keystore) {
