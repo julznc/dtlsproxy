@@ -137,13 +137,14 @@ resolve_address(const char *server, struct sockaddr *dst) {
   error = getaddrinfo(addrstr, "", &hints, &res);
 
   if (error != 0) {
-    fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(error));
+    fprintf(stderr, "getaddrinfo(%s) %s\n", server, gai_strerror(error));
     return error;
   }
 
   for (ainfo = res; ainfo != NULL; ainfo = ainfo->ai_next) {
 
     switch (ainfo->ai_family) {
+    case AF_INET:
     case AF_INET6:
 
       memcpy(dst, ainfo->ai_addr, ainfo->ai_addrlen);

@@ -24,7 +24,6 @@
 
 #define PSK_DEFAULT_IDENTITY "Client_identity"
 #define PSK_DEFAULT_KEY      "secretPSK"
-#define PSK_OPTIONS          "i:k:"
 
 #ifdef __GNUC__
 #define UNUSED_PARAM __attribute__((unused))
@@ -43,36 +42,10 @@ typedef struct {
 static dtls_str output_file = { 0, NULL }; /* output file name */
 
 static dtls_context_t *dtls_context = NULL;
-static dtls_context_t *orig_dtls_context = NULL;
 
 
 
 #ifdef DTLS_PSK
-ssize_t
-read_from_file(char *arg, unsigned char *buf, size_t max_buf_len) {
-  FILE *f;
-  ssize_t result = 0;
-
-  f = fopen(arg, "r");
-  if (f == NULL)
-    return -1;
-
-  while (!feof(f)) {
-    size_t bytes_read;
-    bytes_read = fread(buf, 1, max_buf_len, f);
-    if (ferror(f)) {
-      result = -1;
-      break;
-    }
-
-    buf += bytes_read;
-    result += bytes_read;
-    max_buf_len -= bytes_read;
-  }
-
-  fclose(f);
-  return result;
-}
 
 /* The PSK information for DTLS */
 #define PSK_ID_MAXLEN 256
@@ -191,7 +164,6 @@ dtls_handle_read(struct dtls_context_t *ctx) {
 static void dtls_handle_signal(int sig)
 {
   dtls_free_context(dtls_context);
-  dtls_free_context(orig_dtls_context);
   signal(sig, SIG_DFL);
   kill(getpid(), sig);
 }
@@ -301,28 +273,8 @@ main(int argc, char **argv) {
   memcpy(psk_key, PSK_DEFAULT_KEY, psk_key_length);
 #endif /* DTLS_PSK */
 
-  while ((opt = getopt(argc, argv, "p:o:v:" PSK_OPTIONS)) != -1) {
+  while ((opt = getopt(argc, argv, "p:o:v:")) != -1) {
     switch (opt) {
-#ifdef DTLS_PSK
-    case 'i' : {
-      ssize_t result = read_from_file(optarg, psk_id, PSK_ID_MAXLEN);
-      if (result < 0) {
-        dtls_warn("cannot read PSK identity\n");
-      } else {
-        psk_id_length = result;
-      }
-      break;
-    }
-    case 'k' : {
-      ssize_t result = read_from_file(optarg, psk_key, PSK_MAXLEN);
-      if (result < 0) {
-        dtls_warn("cannot read PSK\n");
-      } else {
-        psk_key_length = result;
-      }
-      break;
-    }
-#endif /* DTLS_PSK */
     case 'p' :
       strncpy(port_str, optarg, NI_MAXSERV-1);
       port_str[NI_MAXSERV - 1] = '\0';
@@ -443,7 +395,6 @@ main(int argc, char **argv) {
   }
   
   dtls_free_context(dtls_context);
-  dtls_free_context(orig_dtls_context);
   exit(0);
 }
 
