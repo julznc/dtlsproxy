@@ -87,7 +87,7 @@ static void session_dispatch(EV_P_ ev_io *w, int revents)
     //session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
     session_context_t *sc = ctx->sessions;
     while (NULL!=sc) {
-        if (w->fd == sc->backend_fd) {
+        if (w->fd == sc->backend_fd) { // fix me
             break;
         }
         sc = sc->next;
@@ -133,29 +133,39 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
 
     //dumpbytes(data, len);
+
+    session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
+    if (NULL==sc) {
+        DBG("%s: session not found", __func__);
+        return -1;
+    }
+
     return sendto(ctx->listen_fd, data, len, MSG_DONTWAIT,
-                  &dtls_session->addr.sa, dtls_session->size);
+                  &sc->dtls_session.addr.sa, sc->dtls_session.size);
 }
 
 static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
                           session_t *dtls_session, uint8 *data, size_t len)
 {
-
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
     session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
-    DBG("%s: session_context=%lx", __func__, (unsigned long)sc);
-    if (sc) {
-        DBG("forward to fd=%d", sc->backend_fd);
-        dumpbytes(data, len);
-        //return sendto(sc->backend_fd, data, len, MSG_DONTWAIT,
-        //              &dtls_session->addr.sa, dtls_session->size);
-        //return sendto(sc->backend_fd, data, len, 0,
-        //              &ctx->listen_addr.addr.sa, ctx->listen_addr.size);
-        //dumpbytes(&dtls_session->addr.sa, dtls_session->size);
-        //dumpbytes(&ctx->listen_addr.addr.sa,  ctx->listen_addr.size);
-        return send(sc->backend_fd, data, len, 0);
+
+    if (NULL==sc) {
+        DBG("%s: session not found", __func__);
+        return -1;
     }
-    return 0;
+
+    //DBG("%s: session_context=%lx", __func__, (unsigned long)sc);
+
+    DBG("forward to backend=%d", sc->backend_fd);
+    dumpbytes(data, len);
+    //return sendto(sc->backend_fd, data, len, MSG_DONTWAIT,
+    //              &dtls_session->addr.sa, dtls_session->size);
+    //return sendto(sc->backend_fd, data, len, 0,
+    //              &ctx->listen_addr.addr.sa, ctx->listen_addr.size);
+    //dumpbytes(&dtls_session->addr.sa, dtls_session->size);
+    //dumpbytes(&ctx->listen_addr.addr.sa,  ctx->listen_addr.size);
+    return send(sc->backend_fd, data, len, 0);
 }
 
 static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
@@ -166,30 +176,20 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
     session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
 
+    if (NULL==sc) {
+        DBG("%s: session not found", __func__);
+        return -1;
+    }
+
     switch (code)
     {
+    case DTLS_ALERT_CLOSE_NOTIFY:
+        DBG("%s: close notify", __func__);
+        break;
     case DTLS_EVENT_CONNECT:
         DBG("%s: connect", __func__);
         break;
     case DTLS_EVENT_CONNECTED:
-        if (NULL==sc) {
-            sc = new_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
-            if (NULL==sc) {
-                ERR("cannot allocate new session");
-                return -1;
-            }
-            sc->client_fd = connect_to_new_client((address_t*)dtls_session, &ctx->listen_addr);
-            if (sc->client_fd <= 0) {
-                free_session(ctx, sc);
-                return -1;
-            }
-            sc->backend_fd = connect_to_backend(ctx);
-            if (sc->backend_fd <= 0) {
-                free_session(ctx, sc);
-                return -1;
-            }
-            start_session(sc, ctx);
-        }
         DBG("%s: connected session=%lX", __func__, (unsigned long)sc);
         return 0;
     case DTLS_EVENT_RENEGOTIATE:
@@ -197,11 +197,11 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         break;
     default:
         DBG("%s: unknown event=%u (alert=%d)", __func__, code, level);
-        if ((DTLS_ALERT_LEVEL_FATAL==level) && (NULL!=sc)) {
-            //free_session(ctx, sc);
-            //return -1;
-        }
         break;
+    }
+
+    if ((DTLS_ALERT_LEVEL_FATAL==level) && (NULL!=sc)) {
+        //free_session(ctx, sc);
     }
 
     return 0;
@@ -326,17 +326,7 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
     static int count = 0;
 
     DBG("%s fds: %d,%d revents: 0x%02x count: %d",
-        __func__, w->fd, ctx->listen_fd, revents, count);
-    count++;
-
-    session_t local;
-    memset(&local, 0, sizeof(session_t));
-    local.size = sizeof(local.addr);
-    int ret = getsockname(ctx->listen_fd, &local.addr.sa, &local.size);
-    if (ret < 0) {
-        ERR("getsockname()=%d errno=%d", ret, errno);
-        return;
-    }
+        __func__, w->fd, ctx->listen_fd, revents, ++count);
 
     session_t client;
     unsigned char packet[DTLS_MAX_BUF];
@@ -344,8 +334,8 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
     memset(&client, 0, sizeof(session_t));
     client.size = sizeof(client.addr);
-    ret = recvfrom(ctx->listen_fd, packet, sizeof(packet), 0,
-                   &client.addr.sa, &client.size);
+    int ret = recvfrom(ctx->listen_fd, packet, sizeof(packet), 0,
+                       &client.addr.sa, &client.size);
     if (ret < 0) {
         ERR("recvfrom() failed, errno = %d", errno);
         return;
@@ -353,6 +343,27 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
         ERR("recvfrom() returned 0");
         //continue;
         return;
+    }
+
+    session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)&client);
+    while (NULL==sc) {
+        sc = new_session(ctx, ctx->listen_fd, (address_t*)&client);
+        if (NULL==sc) {
+            ERR("cannot allocate new session");
+            break;
+        }
+        sc->client_fd = connect_to_new_client((address_t*)&client, &ctx->listen_addr);
+        if (sc->client_fd <= 0) {
+            free_session(ctx, sc);
+            break;
+        }
+        sc->backend_fd = connect_to_backend(ctx);
+        if (sc->backend_fd <= 0) {
+            free_session(ctx, sc);
+            break;
+        }
+        start_session(sc, ctx);
+        DBG("%s: new session=%lX", __func__, (unsigned long)sc);
     }
 
     packet_len = ret;
