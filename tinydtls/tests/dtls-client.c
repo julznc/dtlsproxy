@@ -87,10 +87,10 @@ static size_t psk_key_length = 0;
  * session. */
 static int
 get_psk_info(struct dtls_context_t *ctx UNUSED_PARAM,
-	    const session_t *session UNUSED_PARAM,
-	    dtls_credentials_type_t type,
-	    const unsigned char *id, size_t id_len,
-	    unsigned char *result, size_t result_length) {
+            const session_t *session UNUSED_PARAM,
+            dtls_credentials_type_t type,
+            const unsigned char *id, size_t id_len,
+            unsigned char *result, size_t result_length) {
 
   switch (type) {
   case DTLS_PSK_IDENTITY:
@@ -143,7 +143,7 @@ handle_stdin() {
 
 static int
 read_from_peer(struct dtls_context_t *ctx, 
-	       session_t *session, uint8 *data, size_t len) {
+               session_t *session, uint8 *data, size_t len) {
   size_t i;
   for (i = 0; i < len; i++)
     printf("%c", data[i]);
@@ -152,11 +152,11 @@ read_from_peer(struct dtls_context_t *ctx,
 
 static int
 send_to_peer(struct dtls_context_t *ctx, 
-	     session_t *session, uint8 *data, size_t len) {
+             session_t *session, uint8 *data, size_t len) {
 
   int fd = *(int *)dtls_get_app_data(ctx);
   return sendto(fd, data, len, MSG_DONTWAIT,
-		&session->addr.sa, session->size);
+                &session->addr.sa, session->size);
 }
 
 static int
@@ -175,7 +175,7 @@ dtls_handle_read(struct dtls_context_t *ctx) {
   memset(&session, 0, sizeof(session_t));
   session.size = sizeof(session.addr);
   len = recvfrom(fd, buf, MAX_READ_BUF, 0, 
-		 &session.addr.sa, &session.size);
+                 &session.addr.sa, &session.size);
   
   if (len < 0) {
     perror("recvfrom");
@@ -249,20 +249,20 @@ usage( const char *program, const char *version) {
     program = ++p;
 
   fprintf(stderr, "%s v%s -- DTLS client implementation\n"
-	  "(c) 2011-2014 Olaf Bergmann <bergmann@tzi.org>\n\n"
+          "(c) 2011-2014 Olaf Bergmann <bergmann@tzi.org>\n\n"
 #ifdef DTLS_PSK
-	  "usage: %s [-i file] [-k file] [-o file] [-p port] [-v num] addr [port]\n"
+          "usage: %s [-i file] [-k file] [-o file] [-p port] [-v num] addr [port]\n"
 #else /*  DTLS_PSK */
-	  "usage: %s [-o file] [-p port] [-v num] addr [port]\n"
+          "usage: %s [-o file] [-p port] [-v num] addr [port]\n"
 #endif /* DTLS_PSK */
 #ifdef DTLS_PSK
-	  "\t-i file\t\tread PSK identity from file\n"
-	  "\t-k file\t\tread pre-shared key from file\n"
+          "\t-i file\t\tread PSK identity from file\n"
+          "\t-k file\t\tread pre-shared key from file\n"
 #endif /* DTLS_PSK */
-	  "\t-o file\t\toutput received data to this file (use '-' for STDOUT)\n"
-	  "\t-p port\t\tlisten on specified port (default is %d)\n"
-	  "\t-v num\t\tverbosity level (default: 3)\n",
-	   program, version, program, DEFAULT_PORT);
+          "\t-o file\t\toutput received data to this file (use '-' for STDOUT)\n"
+          "\t-p port\t\tlisten on specified port (default is %d)\n"
+          "\t-v num\t\tverbosity level (default: 3)\n",
+           program, version, program, DEFAULT_PORT);
 }
 
 static dtls_handler_t cb = {
@@ -316,18 +316,18 @@ main(int argc, char **argv) {
     case 'i' : {
       ssize_t result = read_from_file(optarg, psk_id, PSK_ID_MAXLEN);
       if (result < 0) {
-	dtls_warn("cannot read PSK identity\n");
+        dtls_warn("cannot read PSK identity\n");
       } else {
-	psk_id_length = result;
+        psk_id_length = result;
       }
       break;
     }
     case 'k' : {
       ssize_t result = read_from_file(optarg, psk_key, PSK_MAXLEN);
       if (result < 0) {
-	dtls_warn("cannot read PSK\n");
+        dtls_warn("cannot read PSK\n");
       } else {
-	psk_key_length = result;
+        psk_key_length = result;
       }
       break;
     }
@@ -341,11 +341,11 @@ main(int argc, char **argv) {
       output_file.s = (unsigned char *)malloc(output_file.length + 1);
       
       if (!output_file.s) {
-	dtls_crit("cannot set output file: insufficient memory\n");
-	exit(-1);
+        dtls_crit("cannot set output file: insufficient memory\n");
+        exit(-1);
       } else {
-	/* copy filename including trailing zero */
-	memcpy(output_file.s, optarg, output_file.length + 1);
+        /* copy filename including trailing zero */
+        memcpy(output_file.s, optarg, output_file.length + 1);
       }
       break;
     case 'v' :
@@ -433,50 +433,50 @@ main(int argc, char **argv) {
     
     result = select(fd+1, &rfds, &wfds, 0, &timeout);
     
-    if (result < 0) {		/* error */
+    if (result < 0) {                /* error */
       if (errno != EINTR)
-	perror("select");
-    } else if (result == 0) {	/* timeout */
-    } else {			/* ok */
+        perror("select");
+    } else if (result == 0) {        /* timeout */
+    } else {                        /* ok */
       if (FD_ISSET(fd, &wfds))
-	/* FIXME */;
+        /* FIXME */;
       else if (FD_ISSET(fd, &rfds))
-	dtls_handle_read(dtls_context);
+        dtls_handle_read(dtls_context);
       else if (FD_ISSET(fileno(stdin), &rfds))
-	handle_stdin();
+        handle_stdin();
     }
 
     if (len) {
       if (len >= strlen(DTLS_CLIENT_CMD_CLOSE) &&
-	  !memcmp(buf, DTLS_CLIENT_CMD_CLOSE, strlen(DTLS_CLIENT_CMD_CLOSE))) {
-	printf("client: closing connection\n");
-	dtls_close(dtls_context, &dst);
-	len = 0;
+          !memcmp(buf, DTLS_CLIENT_CMD_CLOSE, strlen(DTLS_CLIENT_CMD_CLOSE))) {
+        printf("client: closing connection\n");
+        dtls_close(dtls_context, &dst);
+        len = 0;
       } else if (len >= strlen(DTLS_CLIENT_CMD_RENEGOTIATE) &&
-	         !memcmp(buf, DTLS_CLIENT_CMD_RENEGOTIATE, strlen(DTLS_CLIENT_CMD_RENEGOTIATE))) {
-	printf("client: renegotiate connection\n");
-	dtls_renegotiate(dtls_context, &dst);
-	len = 0;
+                 !memcmp(buf, DTLS_CLIENT_CMD_RENEGOTIATE, strlen(DTLS_CLIENT_CMD_RENEGOTIATE))) {
+        printf("client: renegotiate connection\n");
+        dtls_renegotiate(dtls_context, &dst);
+        len = 0;
       } else if (len >= strlen(DTLS_CLIENT_CMD_REHANDSHAKE) &&
-	         !memcmp(buf, DTLS_CLIENT_CMD_REHANDSHAKE, strlen(DTLS_CLIENT_CMD_REHANDSHAKE))) {
-	printf("client: rehandshake connection\n");
-	if (orig_dtls_context == NULL) {
-	  /* Cache the current context. We cannot free the current context as it will notify 
-	   * the Server to close the connection (which we do not want).
-	   */
-	  orig_dtls_context = dtls_context;
-	  /* Now, Create a new context and attempt to initiate a handshake. */
-	  dtls_context = dtls_new_context(&fd);
-	  if (!dtls_context) {
-	    dtls_emerg("cannot create context\n");
-	    exit(-1);
+                 !memcmp(buf, DTLS_CLIENT_CMD_REHANDSHAKE, strlen(DTLS_CLIENT_CMD_REHANDSHAKE))) {
+        printf("client: rehandshake connection\n");
+        if (orig_dtls_context == NULL) {
+          /* Cache the current context. We cannot free the current context as it will notify
+           * the Server to close the connection (which we do not want).
+           */
+          orig_dtls_context = dtls_context;
+          /* Now, Create a new context and attempt to initiate a handshake. */
+          dtls_context = dtls_new_context(&fd);
+          if (!dtls_context) {
+            dtls_emerg("cannot create context\n");
+            exit(-1);
           }
-	  dtls_set_handler(dtls_context, &cb);
-	  dtls_connect(dtls_context, &dst);
-	}
-	len = 0;
+          dtls_set_handler(dtls_context, &cb);
+          dtls_connect(dtls_context, &dst);
+        }
+        len = 0;
       } else {
-	try_send(dtls_context, &dst);
+        try_send(dtls_context, &dst);
       }
     }
   }

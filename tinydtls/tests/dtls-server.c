@@ -1,11 +1,10 @@
 
-/* This is needed for apple */
-#define __APPLE_USE_RFC_3542
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/types.h>
@@ -26,9 +25,9 @@
  * session. */
 static int
 get_psk_info(struct dtls_context_t *ctx, const session_t *session,
-	     dtls_credentials_type_t type,
-	     const unsigned char *id, size_t id_len,
-	     unsigned char *result, size_t result_length) {
+             dtls_credentials_type_t type,
+             const unsigned char *id, size_t id_len,
+             unsigned char *result, size_t result_length) {
 
   struct keymap_t {
     unsigned char *id;
@@ -52,13 +51,13 @@ get_psk_info(struct dtls_context_t *ctx, const session_t *session,
     int i;
     for (i = 0; i < sizeof(psk)/sizeof(struct keymap_t); i++) {
       if (id_len == psk[i].id_length && memcmp(id, psk[i].id, id_len) == 0) {
-	if (result_length < psk[i].key_length) {
-	  dtls_warn("buffer too small for PSK");
-	  return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
-	}
+        if (result_length < psk[i].key_length) {
+          dtls_warn("buffer too small for PSK");
+          return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
+        }
 
-	memcpy(result, psk[i].key, psk[i].key_length);
-	return psk[i].key_length;
+        memcpy(result, psk[i].key, psk[i].key_length);
+        return psk[i].key_length;
       }
     }
   }
@@ -73,7 +72,7 @@ get_psk_info(struct dtls_context_t *ctx, const session_t *session,
 
 static int
 read_from_peer(struct dtls_context_t *ctx, 
-	       session_t *session, uint8 *data, size_t len) {
+               session_t *session, uint8 *data, size_t len) {
   size_t i;
   for (i = 0; i < len; i++)
     printf("%c", data[i]);
@@ -94,11 +93,11 @@ read_from_peer(struct dtls_context_t *ctx,
 
 static int
 send_to_peer(struct dtls_context_t *ctx, 
-	     session_t *session, uint8 *data, size_t len) {
+             session_t *session, uint8 *data, size_t len) {
 
   int fd = *(int *)dtls_get_app_data(ctx);
   return sendto(fd, data, len, MSG_DONTWAIT,
-		&session->addr.sa, session->size);
+                &session->addr.sa, session->size);
 }
 
 static int
@@ -115,14 +114,14 @@ dtls_handle_read(struct dtls_context_t *ctx) {
   memset(&session, 0, sizeof(session_t));
   session.size = sizeof(session.addr);
   len = recvfrom(*fd, buf, sizeof(buf), MSG_TRUNC,
-		 &session.addr.sa, &session.size);
+                 &session.addr.sa, &session.size);
 
   if (len < 0) {
     perror("recvfrom");
     return -1;
   } else {
     dtls_debug("got %d bytes from port %d\n", len, 
-	     ntohs(session.addr.sin6.sin6_port));
+             ntohs(session.addr.sin6.sin6_port));
     if (sizeof(buf) < len) {
       dtls_warn("packet was truncated (%d bytes lost)\n", len - sizeof(buf));
     }
@@ -181,12 +180,12 @@ usage(const char *program, const char *version) {
     program = ++p;
 
   fprintf(stderr, "%s v%s -- DTLS server implementation\n"
-	  "(c) 2011-2014 Olaf Bergmann <bergmann@tzi.org>\n\n"
-	  "usage: %s [-A address] [-p port] [-v num]\n"
-	  "\t-A address\t\tlisten on specified address (default is ::)\n"
-	  "\t-p port\t\tlisten on specified port (default is %d)\n"
-	  "\t-v num\t\tverbosity level (default: 3)\n",
-	   program, version, program, DEFAULT_PORT);
+          "(c) 2011-2014 Olaf Bergmann <bergmann@tzi.org>\n\n"
+          "usage: %s [-A address] [-p port] [-v num]\n"
+          "\t-A address\t\tlisten on specified address (default is ::)\n"
+          "\t-p port\t\tlisten on specified port (default is %d)\n"
+          "\t-v num\t\tverbosity level (default: 3)\n",
+           program, version, program, DEFAULT_PORT);
 }
 
 static dtls_handler_t cb = {
@@ -227,8 +226,8 @@ main(int argc, char **argv) {
     switch (opt) {
     case 'A' :
       if (resolve_address(optarg, (struct sockaddr *)&listen_addr) < 0) {
-	fprintf(stderr, "cannot resolve address\n");
-	exit(-1);
+        fprintf(stderr, "cannot resolve address\n");
+        exit(-1);
       }
       break;
     case 'p' :
@@ -256,13 +255,13 @@ main(int argc, char **argv) {
   if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) ) < 0) {
     dtls_alert("setsockopt SO_REUSEADDR: %s\n", strerror(errno));
   }
-#if 0
-  flags = fcntl(fd, F_GETFL, 0);
+
+  int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
     dtls_alert("fcntl: %s\n", strerror(errno));
     goto error;
   }
-#endif
+
   on = 1;
 #ifdef IPV6_RECVPKTINFO
   if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
@@ -295,15 +294,15 @@ main(int argc, char **argv) {
     
     result = select( fd+1, &rfds, &wfds, 0, &timeout);
     
-    if (result < 0) {		/* error */
+    if (result < 0) {                /* error */
       if (errno != EINTR)
-	perror("select");
-    } else if (result == 0) {	/* timeout */
-    } else {			/* ok */
+        perror("select");
+    } else if (result == 0) {        /* timeout */
+    } else {                        /* ok */
       if (FD_ISSET(fd, &wfds))
-	;
+        ;
       else if (FD_ISSET(fd, &rfds)) {
-	dtls_handle_read(the_context);
+        dtls_handle_read(the_context);
       }
     }
   }
