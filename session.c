@@ -18,8 +18,7 @@
   } while (0);
 
 session_context_t *new_session(proxy_dtls_context_t *dtls_ctx,
-                               const endpoint_t *local_interface,
-                               const address_t *remote)
+                               int sockfd, const address_t *remote)
 {
     session_context_t *session = (session_context_t *)malloc(sizeof(session_context_t));
     if (NULL==session) {
@@ -30,20 +29,19 @@ session_context_t *new_session(proxy_dtls_context_t *dtls_ctx,
     memset(session, 0, sizeof(session_context_t));
     dtls_session_init(&session->dtls_session);
     COPY_ADDRESS(&session->dtls_session, remote);
-    session->dtls_session.ifindex = local_interface->handle.fd;
+    session->dtls_session.ifindex = sockfd;
 
     LL_PREPEND(dtls_ctx->sessions, session);
     return session;
 }
 
 session_context_t *find_session(proxy_dtls_context_t *dtls_ctx,
-                                const endpoint_t *local_interface,
-                                const address_t *dst)
+                                int sockfd, const address_t *dst)
 {
     session_context_t *session = NULL;
 
     LL_FOREACH(dtls_ctx->sessions, session) {
-        if ((session->dtls_session.ifindex == local_interface->handle.fd) &&
+        if ((session->dtls_session.ifindex == sockfd) &&
             address_equals((address_t *)&session->dtls_session, dst)) {
             return session;
         }

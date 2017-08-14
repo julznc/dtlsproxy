@@ -6,10 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "utlist.h"
-
 #include "address.h"
-#include "proxy.h"
 #include "utils.h"
 
 
@@ -33,6 +30,41 @@ int address_equals(const address_t *a, const address_t *b)
                         sizeof(struct in6_addr)) == 0));
    }
    return 0;
+}
+
+int resolve_address(const char *host, const char *port, address_t *addr)
+{
+    DBG("%s(%s:%s)", __func__, host, port);
+
+    struct addrinfo *res, *ainfo;
+    struct addrinfo hints;
+
+    memset ((char *)&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_family = AF_UNSPEC;
+
+    int error = getaddrinfo(host, port, &hints, &res);
+
+    if (error != 0) {
+        ERR("getaddrinfo: %s", gai_strerror(error));
+        return error;
+    }
+
+    int len = -1;
+    for (ainfo = res; ainfo != NULL; ainfo = ainfo->ai_next) {
+        switch (ainfo->ai_family) {
+        case AF_INET:
+        // fall through
+        case AF_INET6:
+            len = ainfo->ai_addrlen;
+            memcpy(&addr->addr, ainfo->ai_addr, len);
+            addr->size = len;
+        }
+        if (len > 0) break;
+    }
+
+    freeaddrinfo(res);
+    return len;
 }
 
 int create_socket(const address_t *addr, const address_t *bind_addr)
@@ -85,60 +117,5 @@ int create_socket(const address_t *addr, const address_t *bind_addr)
     }
 
     return sockfd;
-}
-
-endpoint_t *new_endpoint(const address_t *addr)
-{
-    int sockfd = create_socket(addr, addr);
-    if (sockfd < 0) {
-        ERR("new_endpoint: socket");
-        return NULL;
-    }
-
-    endpoint_t *ep = (endpoint_t *)malloc(sizeof(endpoint_t));
-    if (!ep) {
-        ERR("new_endpoint: malloc failed");
-        close (sockfd);
-        return NULL;
-    }
-
-    memset(ep, 0, sizeof(endpoint_t));
-    ep->handle.fd = sockfd;
-    ep->flags = 0x0001; // fix me
-
-    ep->addr.size = addr->size;
-    if (getsockname(sockfd, &ep->addr.addr.sa, &ep->addr.size) < 0) {
-        ERR("new_endpoint: cannot determine local address");
-        close (sockfd);
-        free(ep);
-        return NULL;
-    }
-
-    return (endpoint_t *)ep;
-}
-
-void free_endpoint(endpoint_t *ep)
-{
-    if(ep) {
-        if (ep->handle.fd >= 0) {
-            close(ep->handle.fd);
-        }
-        free(ep);
-    }
-}
-
-void detach_endpoint(endpoint_t *endpoint)
-{
-    if (endpoint->context != NULL) {
-        LL_DELETE(endpoint->context->endpoint, endpoint);
-        endpoint->context = NULL;
-    }
-}
-
-void attach_endpoint(struct proxy_context *ctx, endpoint_t *endpoint)
-{
-    detach_endpoint(endpoint);
-    endpoint->context = ctx;
-    LL_PREPEND(ctx->endpoint, endpoint);
 }
 

@@ -19,16 +19,8 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
 {
     //DBG("%s: len=%lu", __func__, len);
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
-    endpoint_t *local_interface;
 
-    LL_SEARCH_SCALAR(ctx->endpoint, local_interface,
-                     handle.fd, session->ifindex);
-    if (!local_interface) {
-        ERR("dtls_send_to_peer: cannot find local interface");
-        return -3;
-    }
-
-    return sendto(local_interface->handle.fd, data, len, MSG_DONTWAIT,
+    return sendto(ctx->listen_fd, data, len, MSG_DONTWAIT,
                   &session->addr.sa, session->size);
 }
 
@@ -122,35 +114,20 @@ int proxy_init(proxy_context_t *ctx,
     DBG("listen = %s:%s", ctx->options->listen_host, ctx->options->listen_port);
     DBG("psk = %s:%s", psk->id, psk->key);
 
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_DGRAM; /* UDP */
-    hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
-
-    struct addrinfo *result;
-    if (0 != getaddrinfo(opt->listen_host, opt->listen_port, &hints, &result) ) {
-        ERR("getaddrinfo() failed");
+    address_t listen_addr;
+    int len = resolve_address(ctx->options->listen_host,
+                              ctx->options->listen_port,
+                              &listen_addr);
+    if (len < 1) {
+        ERR("failed to resolve listen host");
         return -1;
     }
 
-    address_t addr;
-    endpoint_t *endpoint = NULL;
-    for (struct addrinfo *rp = result; rp != NULL; rp = rp->ai_next) {
-        if (rp->ai_addrlen <= (int)sizeof(addr.addr)) {
-            memset(&addr, 0, sizeof(address_t));
-            addr.size = rp->ai_addrlen;
-            memcpy(&addr.addr, rp->ai_addr, rp->ai_addrlen);
-
-            endpoint = new_endpoint(&addr);
-            if (NULL==endpoint) {
-                ERR("unable to create listen endpoint");
-                return -1;
-            }
-            attach_endpoint(ctx, endpoint);
-        }
+    ctx->listen_fd = create_socket(&listen_addr, &listen_addr);
+    if (ctx->listen_fd < 0) {
+        ERR("failed to create listen socket");
+        return -1;
     }
-    freeaddrinfo(result);
 
     dtls_init();
     ctx->dtls_ctx = new_dtls_context(ctx);
@@ -174,16 +151,15 @@ int proxy_init(proxy_context_t *ctx,
 }
 
 static int handle_message(proxy_context_t *ctx,
-                          const endpoint_t *local_interface,
                           const address_t *dst,
                           uint8 *data, size_t data_len)
 {
     //DBG("%s", __func__);
     int is_new = 0;
-    session_context_t *session = find_session(ctx->dtls_ctx, local_interface, dst);
+    session_context_t *session = find_session(ctx->dtls_ctx, ctx->listen_fd, dst);
 
     if (NULL==session) {
-        session = new_session(ctx->dtls_ctx, local_interface, dst);
+        session = new_session(ctx->dtls_ctx, ctx->listen_fd, dst);
         if (NULL==session) {
             ERR("cannot allocate new session");
             return -1;
@@ -227,17 +203,16 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
     //DBG("%s revents=%X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
-    int listen_fd = ctx->endpoint->handle.fd;
     static int count = 0;
 
     DBG("%s fds: %d,%d revents: 0x%02x count: %d",
-        __func__, w->fd, listen_fd, revents, count);
+        __func__, w->fd, ctx->listen_fd, revents, count);
     count++;
 
     session_t local;
     memset(&local, 0, sizeof(session_t));
     local.size = sizeof(local.addr);
-    int ret = getsockname(listen_fd, &local.addr.sa, &local.size);
+    int ret = getsockname(ctx->listen_fd, &local.addr.sa, &local.size);
     if (ret < 0) {
         ERR("getsockname()=%d errno=%d", ret, errno);
         return;
@@ -249,7 +224,7 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
     memset(&client, 0, sizeof(session_t));
     client.size = sizeof(client.addr);
-    ret = recvfrom(listen_fd, packet, sizeof(packet), 0,
+    ret = recvfrom(ctx->listen_fd, packet, sizeof(packet), 0,
                    &client.addr.sa, &client.size);
     if (ret < 0) {
         ERR("recvfrom() failed, errno = %d", errno);
@@ -262,14 +237,13 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
     packet_len = ret;
 
-    handle_message(ctx, ctx->endpoint, (address_t*)&client,
-                   packet, packet_len);
+    handle_message(ctx, (address_t*)&client, packet, packet_len);
 }
 
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
 {
-    DBG("%s fd=%d", __func__, ctx->endpoint->handle.fd);
-    ev_io_init(w, proxy_cb, ctx->endpoint->handle.fd, EV_READ);
+    DBG("%s fd=%d", __func__, ctx->listen_fd);
+    ev_io_init(w, proxy_cb, ctx->listen_fd, EV_READ);
     w->data = ctx;
     ev_io_start(EV_A_ w);
 }
@@ -315,10 +289,8 @@ void proxy_deinit(proxy_context_t *ctx)
         ctx->keystore = NULL;
     }
 
-    if(NULL != ctx->endpoint) {
-        endpoint_t *ep, *tmp;
-        LL_FOREACH_SAFE(ctx->endpoint, ep, tmp) {
-            free_endpoint(ep);
-        }
+    if(ctx->listen_fd > 0) {
+        close(ctx->listen_fd);
+        ctx->listen_fd = 0;
     }
 }

@@ -19,27 +19,10 @@ typedef struct address_t {
 
 struct proxy_context;
 
-typedef struct endpoint_t {
-    struct endpoint_t *next;
-    union {
-        int fd;
-        void *conn;
-    } handle;
-    struct proxy_context *context;
-    address_t addr;
-    int ifindex;
-    int flags;
-} endpoint_t;
-
 
 int address_equals(const address_t *a, const address_t *b);
+int resolve_address(const char *host, const char *port, address_t *addr);
 int create_socket(const address_t *addr, const address_t *bind_addr);
-
-endpoint_t *new_endpoint(const address_t *addr);
-void free_endpoint(endpoint_t *ep);
-
-void detach_endpoint(endpoint_t *endpoint);
-void attach_endpoint(struct proxy_context *ctx, endpoint_t *endpoint);
 
 
 #endif // ADDRESS_H

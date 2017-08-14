@@ -20,12 +20,10 @@ typedef struct proxy_dtls_context_t {
 
 
 session_context_t *new_session(proxy_dtls_context_t *dtls_ctx,
-                               const endpoint_t *local_interface,
-                               const address_t *remote);
+                               int sockfd, const address_t *remote);
 
 session_context_t *find_session(proxy_dtls_context_t *dtls_ctx,
-                                const endpoint_t *local_interface,
-                                const address_t *dst);
+                                int sockfd, const address_t *dst);
 
 void free_session(proxy_dtls_context_t *dtls_ctx,
                   session_context_t *session);
