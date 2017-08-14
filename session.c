@@ -56,14 +56,20 @@ void free_session(struct proxy_context *ctx,
                   session_context_t *session)
 {
     if (ctx && session) {
+
+        struct ev_loop *loop = ctx->loop;
+        ev_io_stop(EV_A_ &session->backend_rd_watcher);
+
         if (session->client_fd > 0) {
             close(session->client_fd);
             session->client_fd = -1;
         }
+
         if (session->backend_fd > 0) {
             close(session->backend_fd);
             session->backend_fd = -1;
         }
+
         LL_DELETE(ctx->sessions, session);
         free(session);
     }

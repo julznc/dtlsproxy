@@ -27,6 +27,7 @@ typedef struct proxy_context {
     session_context_t *sessions;
     address_t listen_addr;
     int listen_fd;
+    struct ev_loop *loop;
     ev_io watcher;
 } proxy_context_t;
 

@@ -11,7 +11,6 @@
 #include "proxy.h"
 #include "utils.h"
 
-static struct ev_loop *loop = NULL;
 
 static int connect_to_new_client(const address_t *client, const address_t *local)
 {
@@ -112,17 +111,19 @@ static void session_dispatch(EV_P_ ev_io *w, int revents)
     }
 }
 
-static void listen_session_io(EV_P_ ev_io *w, int fd, void *d)
+static void listen_session_io(EV_P_ ev_io *w, int fd, proxy_context_t *ctx)
 {
     DBG("%s", __func__);
+    loop = ctx->loop;
     ev_io_init(w, session_dispatch, fd, EV_READ);
-    w->data = d;
+    w->data = ctx;
     ev_io_start(EV_A_ w);
 }
 
 void start_session(session_context_t *sc, proxy_context_t *ctx)
 {
     DBG("%s", __func__);
+    struct ev_loop *loop = ctx->loop;
     listen_session_io(EV_A_ &sc->backend_rd_watcher, sc->backend_fd, ctx);
 }
 
@@ -201,7 +202,7 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
     }
 
     if ((DTLS_ALERT_LEVEL_FATAL==level) && (NULL!=sc)) {
-        //free_session(ctx, sc);
+        free_session(ctx, sc);
     }
 
     return 0;
@@ -375,6 +376,7 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
 {
     DBG("%s fd=%d", __func__, ctx->listen_fd);
+    loop = ctx->loop;
     ev_io_init(w, proxy_cb, ctx->listen_fd, EV_READ);
     w->data = ctx;
     ev_io_start(EV_A_ w);
@@ -384,7 +386,9 @@ int proxy_run(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
 
-    loop = ev_default_loop(0);
+    struct ev_loop *loop = ev_default_loop(0);
+    assert(NULL!=loop);
+    ctx->loop = loop;
     start_listen_io(EV_A_ &ctx->watcher, ctx);
 
     //DBG("call libev run()");
@@ -396,6 +400,8 @@ int proxy_run(proxy_context_t *ctx)
 void proxy_exit(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
+
+    struct ev_loop *loop = ctx->loop;
 
     session_context_t *sc = ctx->sessions;
     while(sc) {
