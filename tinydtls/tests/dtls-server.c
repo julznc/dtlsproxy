@@ -250,12 +250,22 @@ main(int argc, char **argv) {
   }
 
   on = 1;
+  switch (listen_addr.sin6_family)
+  {
+  case AF_INET:
+    if (setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0) {
+      dtls_alert("setsockopt IP_PKTINFO: %s\n", strerror(errno));
+    }
+    break;
+  case AF_INET6:
 #ifdef IPV6_RECVPKTINFO
-  if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
+    if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
 #else /* IPV6_RECVPKTINFO */
-  if (setsockopt(fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
+    if (setsockopt(fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
 #endif /* IPV6_RECVPKTINFO */
-    dtls_alert("setsockopt IPV6_PKTINFO: %s\n", strerror(errno));
+      dtls_alert("setsockopt IPV6_PKTINFO: %s\n", strerror(errno));
+    }
+    break;
   }
 
   if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {

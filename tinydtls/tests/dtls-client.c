@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <ctype.h>
 #include <netinet/in.h>
@@ -38,8 +39,6 @@ typedef struct {
   size_t length;               /* length of string */
   unsigned char *s;            /* string data */
 } dtls_str;
-
-static dtls_str output_file = { 0, NULL }; /* output file name */
 
 static dtls_context_t *dtls_context = NULL;
 
@@ -197,8 +196,8 @@ resolve_address(const char *server, struct sockaddr *dst) {
   for (ainfo = res; ainfo != NULL; ainfo = ainfo->ai_next) {
 
     switch (ainfo->ai_family) {
-    case AF_INET6:
     case AF_INET:
+    case AF_INET6:
 
       memcpy(dst, ainfo->ai_addr, ainfo->ai_addrlen);
       return ainfo->ai_addrlen;
@@ -273,23 +272,11 @@ main(int argc, char **argv) {
   memcpy(psk_key, PSK_DEFAULT_KEY, psk_key_length);
 #endif /* DTLS_PSK */
 
-  while ((opt = getopt(argc, argv, "p:o:v:")) != -1) {
+  while ((opt = getopt(argc, argv, "p:v:")) != -1) {
     switch (opt) {
     case 'p' :
       strncpy(port_str, optarg, NI_MAXSERV-1);
       port_str[NI_MAXSERV - 1] = '\0';
-      break;
-    case 'o' :
-      output_file.length = strlen(optarg);
-      output_file.s = (unsigned char *)malloc(output_file.length + 1);
-      
-      if (!output_file.s) {
-        dtls_crit("cannot set output file: insufficient memory\n");
-        exit(-1);
-      } else {
-        /* copy filename including trailing zero */
-        memcpy(output_file.s, optarg, output_file.length + 1);
-      }
       break;
     case 'v' :
       log_level = strtol(optarg, NULL, 10);
@@ -332,20 +319,30 @@ main(int argc, char **argv) {
   if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) ) < 0) {
     dtls_alert("setsockopt SO_REUSEADDR: %s\n", strerror(errno));
   }
-#if 0
-  flags = fcntl(fd, F_GETFL, 0);
+
+  int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
     dtls_alert("fcntl: %s\n", strerror(errno));
     goto error;
   }
-#endif
+
   on = 1;
+  switch (dst.addr.sa.sa_family)
+  {
+  case AF_INET:
+    if (setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0) {
+      dtls_alert("setsockopt IP_PKTINFO: %s\n", strerror(errno));
+    }
+    break;
+  case AF_INET6:
 #ifdef IPV6_RECVPKTINFO
-  if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
+    if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
 #else /* IPV6_RECVPKTINFO */
-  if (setsockopt(fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
+    if (setsockopt(fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
 #endif /* IPV6_RECVPKTINFO */
-    dtls_alert("setsockopt IPV6_PKTINFO: %s\n", strerror(errno));
+      dtls_alert("setsockopt IPV6_PKTINFO: %s\n", strerror(errno));
+    }
+    break;
   }
 
   if (signal(SIGINT, dtls_handle_signal) == SIG_ERR) {
@@ -393,7 +390,7 @@ main(int argc, char **argv) {
       try_send(dtls_context, &dst);
     }
   }
-  
+ error:
   dtls_free_context(dtls_context);
   exit(0);
 }
