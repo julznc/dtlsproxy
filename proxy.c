@@ -20,6 +20,7 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
     //DBG("%s: len=%lu", __func__, len);
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
 
+    //dumpbytes(data, len);
     return sendto(ctx->listen_fd, data, len, MSG_DONTWAIT,
                   &session->addr.sa, session->size);
 }
@@ -28,6 +29,7 @@ static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
                           session_t *session, uint8 *data, size_t len)
 {
     DBG("%s: len=%lu", __func__, len);
+    dumpbytes(data, len);
     return 0;
 }
 
@@ -35,6 +37,23 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
                       dtls_alert_level_t level, unsigned short code)
 {
     DBG("%s: alert=%d, code=%u", __func__, level, code);
+
+    switch (code)
+    {
+    case DTLS_EVENT_CONNECT:
+        DBG("%s: connect", __func__);
+        break;
+    case DTLS_EVENT_CONNECTED:
+        DBG("%s: connected", __func__);
+        break;
+    case DTLS_EVENT_RENEGOTIATE:
+        DBG("%s: renegotiate", __func__);
+        break;
+    default:
+        DBG("%s: unknown event=%u (alert=%d)", __func__, code, level);
+        break;
+    }
+
     return 0;
 }
 
