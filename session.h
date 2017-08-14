@@ -27,4 +27,6 @@ session_context_t *find_session(struct proxy_context *ctx,
 void free_session(struct proxy_context *ctx,
                   session_context_t *session);
 
+void start_session(struct proxy_context *ctx, session_context_t *sc);
+
 #endif // SESSION_H
