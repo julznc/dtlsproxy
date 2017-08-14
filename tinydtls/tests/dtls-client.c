@@ -278,15 +278,6 @@ static dtls_handler_t cb = {
 #endif /* DTLS_ECC */
 };
 
-#define DTLS_CLIENT_CMD_CLOSE "client:close"
-#define DTLS_CLIENT_CMD_RENEGOTIATE "client:renegotiate"
-
-/* As per RFC 6347 section 4.2.8, DTLS Server should support requests
- * from clients who have silently abandoned the existing association
- * and initiated a new handshake request by sending a ClientHello.
- * Below command tests this feature.
- */
-#define DTLS_CLIENT_CMD_REHANDSHAKE "client:rehandshake"
 
 int 
 main(int argc, char **argv) {
@@ -447,37 +438,7 @@ main(int argc, char **argv) {
     }
 
     if (len) {
-      if (len >= strlen(DTLS_CLIENT_CMD_CLOSE) &&
-          !memcmp(buf, DTLS_CLIENT_CMD_CLOSE, strlen(DTLS_CLIENT_CMD_CLOSE))) {
-        printf("client: closing connection\n");
-        dtls_close(dtls_context, &dst);
-        len = 0;
-      } else if (len >= strlen(DTLS_CLIENT_CMD_RENEGOTIATE) &&
-                 !memcmp(buf, DTLS_CLIENT_CMD_RENEGOTIATE, strlen(DTLS_CLIENT_CMD_RENEGOTIATE))) {
-        printf("client: renegotiate connection\n");
-        dtls_renegotiate(dtls_context, &dst);
-        len = 0;
-      } else if (len >= strlen(DTLS_CLIENT_CMD_REHANDSHAKE) &&
-                 !memcmp(buf, DTLS_CLIENT_CMD_REHANDSHAKE, strlen(DTLS_CLIENT_CMD_REHANDSHAKE))) {
-        printf("client: rehandshake connection\n");
-        if (orig_dtls_context == NULL) {
-          /* Cache the current context. We cannot free the current context as it will notify
-           * the Server to close the connection (which we do not want).
-           */
-          orig_dtls_context = dtls_context;
-          /* Now, Create a new context and attempt to initiate a handshake. */
-          dtls_context = dtls_new_context(&fd);
-          if (!dtls_context) {
-            dtls_emerg("cannot create context\n");
-            exit(-1);
-          }
-          dtls_set_handler(dtls_context, &cb);
-          dtls_connect(dtls_context, &dst);
-        }
-        len = 0;
-      } else {
-        try_send(dtls_context, &dst);
-      }
+      try_send(dtls_context, &dst);
     }
   }
   
