@@ -58,9 +58,11 @@ void free_session(struct proxy_context *ctx,
     if (ctx && session) {
         if (session->client_fd > 0) {
             close(session->client_fd);
+            session->client_fd = -1;
         }
         if (session->backend_fd > 0) {
             close(session->backend_fd);
+            session->backend_fd = -1;
         }
         LL_DELETE(ctx->sessions, session);
         free(session);

@@ -13,6 +13,7 @@ typedef struct session_context {
     session_t dtls_session;
     int client_fd;
     int backend_fd;
+    ev_io backend_rd_watcher;
 } session_context_t;
 
 struct proxy_context;

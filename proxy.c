@@ -11,6 +11,7 @@
 #include "proxy.h"
 #include "utils.h"
 
+static struct ev_loop *loop = NULL;
 
 static int connect_to_new_client(const address_t *client, const address_t *local)
 {
@@ -33,6 +34,7 @@ static int connect_to_new_client(const address_t *client, const address_t *local
 
 static int connect_to_backend(const proxy_context_t *ctx)
 {
+
     address_t backend;
     memset(&backend, 0, sizeof(backend));
 
@@ -41,13 +43,25 @@ static int connect_to_backend(const proxy_context_t *ctx)
         ERR("unable to resolve backend address");
         return -1;
     }
-
+#if 0
     int fd = create_socket(&backend, &backend);
     if (fd < 0) {
         ERR("backend socket() failed");
         return -1;
     }
+#else
+    int fd = socket(backend.addr.sa.sa_family, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        ERR("failed to create socket");
+        return -1;
+    }
 
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+        ERR("set nonblock failed: %s", strerror(errno));
+        close (fd);
+        return -1;
+    }
+#endif
     int err = connect(fd, &backend.addr.sa, backend.size);
     if (0!=err) {
         ERR("connect backend failed");
@@ -59,22 +73,88 @@ static int connect_to_backend(const proxy_context_t *ctx)
     return fd;
 }
 
+static void session_dispatch(EV_P_ ev_io *w, int revents)
+{
+    DBG("%s revents=%X", __func__, revents);
+    address_t address;
+    unsigned char packet[DTLS_MAX_BUF];
+    size_t packet_len = 0;
+
+    memset(&address, 0, sizeof(address_t));
+    address.size = sizeof(address.addr);
+
+    proxy_context_t *ctx = (proxy_context_t *)w->data;
+    //session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
+    session_context_t *sc = ctx->sessions;
+    while (NULL!=sc) {
+        if (w->fd == sc->backend_fd) {
+            break;
+        }
+        sc = sc->next;
+    }
+    if (NULL==sc) {
+        ERR("session not found");
+        return;
+    }
+
+    if ((w->fd == sc->backend_fd) && (revents & EV_READ)) {
+        DBG("session_receive_from_backend");
+        int res = recvfrom(w->fd, packet, sizeof(packet), 0,
+                       &address.addr.sa, &address.size);
+        if (res <= 0) {
+            ERR("recv() failed");
+            return;
+        }
+        packet_len = res;
+        DBG("relay to client, len=%lu", packet_len);
+        dumpbytes(packet, packet_len);
+        dtls_write(ctx->dtls, &sc->dtls_session, packet, packet_len);
+    }
+}
+
+static void listen_session_io(EV_P_ ev_io *w, int fd, void *d)
+{
+    DBG("%s", __func__);
+    ev_io_init(w, session_dispatch, fd, EV_READ);
+    w->data = d;
+    ev_io_start(EV_A_ w);
+}
+
+void start_session(session_context_t *sc, proxy_context_t *ctx)
+{
+    DBG("%s", __func__);
+    listen_session_io(EV_A_ &sc->backend_rd_watcher, sc->backend_fd, ctx);
+}
+
 static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
-                             session_t *session, uint8 *data, size_t len)
+                             session_t *dtls_session, uint8 *data, size_t len)
 {
     //DBG("%s: len=%lu", __func__, len);
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
 
     //dumpbytes(data, len);
     return sendto(ctx->listen_fd, data, len, MSG_DONTWAIT,
-                  &session->addr.sa, session->size);
+                  &dtls_session->addr.sa, dtls_session->size);
 }
 
 static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
-                          session_t *session, uint8 *data, size_t len)
+                          session_t *dtls_session, uint8 *data, size_t len)
 {
-    DBG("%s: len=%lu", __func__, len);
-    dumpbytes(data, len);
+
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    session_context_t *sc = find_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
+    DBG("%s: session_context=%lx", __func__, (unsigned long)sc);
+    if (sc) {
+        DBG("forward to fd=%d", sc->backend_fd);
+        dumpbytes(data, len);
+        //return sendto(sc->backend_fd, data, len, MSG_DONTWAIT,
+        //              &dtls_session->addr.sa, dtls_session->size);
+        //return sendto(sc->backend_fd, data, len, 0,
+        //              &ctx->listen_addr.addr.sa, ctx->listen_addr.size);
+        //dumpbytes(&dtls_session->addr.sa, dtls_session->size);
+        //dumpbytes(&ctx->listen_addr.addr.sa,  ctx->listen_addr.size);
+        return send(sc->backend_fd, data, len, 0);
+    }
     return 0;
 }
 
@@ -92,8 +172,6 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         DBG("%s: connect", __func__);
         break;
     case DTLS_EVENT_CONNECTED:
-        DBG("%s: connected", __func__);
-        DBG("%s: session=%lX", __func__, (unsigned long)sc);
         if (NULL==sc) {
             sc = new_session(ctx, ctx->listen_fd, (address_t*)dtls_session);
             if (NULL==sc) {
@@ -110,17 +188,18 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
                 free_session(ctx, sc);
                 return -1;
             }
-            DBG("todo: start session");
+            start_session(sc, ctx);
         }
-        break;
+        DBG("%s: connected session=%lX", __func__, (unsigned long)sc);
+        return 0;
     case DTLS_EVENT_RENEGOTIATE:
         DBG("%s: renegotiate", __func__);
         break;
     default:
         DBG("%s: unknown event=%u (alert=%d)", __func__, code, level);
         if ((DTLS_ALERT_LEVEL_FATAL==level) && (NULL!=sc)) {
-            free_session(ctx, sc);
-            return -1;
+            //free_session(ctx, sc);
+            //return -1;
         }
         break;
     }
@@ -290,8 +369,6 @@ static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
     ev_io_start(EV_A_ w);
 }
 
-static struct ev_loop *loop = NULL;
-
 int proxy_run(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
@@ -308,6 +385,12 @@ int proxy_run(proxy_context_t *ctx)
 void proxy_exit(proxy_context_t *ctx)
 {
     DBG("%s", __func__);
+
+    session_context_t *sc = ctx->sessions;
+    while(sc) {
+        ev_io_stop(EV_A_ &sc->backend_rd_watcher);
+        sc = sc->next;
+    }
 
     ev_io_stop(EV_A_ &ctx->watcher);
 
