@@ -126,8 +126,7 @@ main(int argc, char **argv) {
   dtls_context_t *dtls_ctx = NULL;
   fd_set rfds, wfds;
   struct timeval timeout;
-  int fd, opt, result;
-  int on = 1;
+  int opt, result;
   uint8_t psk_buf[1024];
 
   proxy_context_t context;
@@ -184,43 +183,11 @@ main(int argc, char **argv) {
   }
 
   /* init socket and set it to non-blocking */
-  fd = socket(context.listen_addr.addr.sa.sa_family, SOCK_DGRAM, 0);
+  int fd = create_socket(&context.listen_addr);
 
   if (fd < 0) {
     ERR("socket: %s", strerror(errno));
     return 0;
-  }
-
-  if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) ) < 0) {
-    ERR("setsockopt SO_REUSEADDR: %s", strerror(errno));
-  }
-
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ERR("fcntl: %s", strerror(errno));
-    goto error;
-  }
-
-  on = 1;
-  switch (context.listen_addr.addr.sa.sa_family)
-  {
-  case AF_INET:
-    if (setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0) {
-      ERR("setsockopt IP_PKTINFO: %s", strerror(errno));
-    }
-    break;
-  case AF_INET6:
-#ifdef IPV6_RECVPKTINFO
-    if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on) ) < 0) {
-#else /* IPV6_RECVPKTINFO */
-    if (setsockopt(fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
-#endif /* IPV6_RECVPKTINFO */
-      ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
-    }
-    break;
-  default:
-    ERR("not supported sa_family");
-    exit(1);
   }
 
   if (bind(fd, (struct sockaddr*)&context.listen_addr.addr, sizeof(context.listen_addr.addr)) < 0) {

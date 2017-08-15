@@ -5,5 +5,6 @@
 #include <dtls.h>
 
 int resolve_address(const char *host, const char *port, session_t *addr);
+int create_socket(const session_t *addr);
 
 #endif // ADDRESS_H
