@@ -19,6 +19,7 @@
 #include "dtls_debug.h"
 
 #include "proxy.h"
+#include "utils.h"
 
 #define DEFAULT_PORT 20220
 
@@ -41,10 +42,10 @@ get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
 
   if (id) {
     for (keystore_t *psk=ctx->psk; psk && psk->id; psk=psk->next) {
-      //printf("psk=%s\n", psk->id);
+      //DBG("psk=%s\n", psk->id);
       if (id_len == psk->id_length && memcmp(id, psk->id, id_len) == 0) {
         if (result_length < psk->key_length) {
-          printf("buffer too small for PSK\n");
+          ERR("buffer too small for PSK");
           return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
         }
         memcpy(result, psk->key, psk->key_length);
@@ -61,11 +62,7 @@ get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
 static int
 read_from_peer(struct dtls_context_t *dtls_ctx,
                session_t *session, uint8 *data, size_t len) {
-  size_t i;
-  for (i = 0; i < len; i++)
-    printf("%c", data[i]);
-  printf("\n");
-
+  dumpbytes(data, len);
   return dtls_write(dtls_ctx, session, data, len);
 }
 
@@ -95,10 +92,10 @@ dtls_handle_read(struct dtls_context_t *dtls_ctx) {
     perror("recvfrom");
     return -1;
   } else {
-    printf("got %d bytes from port %u\n", len,
+    DBG("got %d bytes from port %u", len,
              ntohs(session.addr.sin6.sin6_port));
     if (sizeof(buf) < len) {
-      printf("packet was truncated (%lu bytes lost)\n", len - sizeof(buf));
+      ERR("packet was truncated (%lu bytes lost)", len - sizeof(buf));
     }
   }
 
@@ -126,7 +123,7 @@ resolve_address(const char *server, struct sockaddr *dst) {
   error = getaddrinfo(addrstr, "", &hints, &res);
 
   if (error != 0) {
-    fprintf(stderr, "getaddrinfo(%s) %s\n", server, gai_strerror(error));
+    ERR("getaddrinfo(%s) %s", server, gai_strerror(error));
     return error;
   }
 
@@ -155,12 +152,12 @@ usage(const char *program, const char *version) {
   if ( p )
     program = ++p;
 
-  fprintf(stderr, "%s v%s -- DTLS server implementation\n"
+  ERR("%s v%s -- DTLS server implementation\n"
           "(c) 2011-2014 Olaf Bergmann <bergmann@tzi.org>\n\n"
-          "usage: %s [-A address] [-p port] [-v num]\n"
+          "usage: %s [-A address] [-p port] [-i psk]\n"
           "\t-A address\t\tlisten on specified address (default is ::)\n"
           "\t-p port\t\tlisten on specified port (default is %d)\n"
-          "\t-v num\t\tverbosity level (default: 3)\n",
+          "\t-i num\t\tpsk identities\n",
            program, version, program, DEFAULT_PORT);
 }
 
@@ -200,7 +197,7 @@ main(int argc, char **argv) {
     switch (opt) {
     case 'A' :
       if (resolve_address(optarg, (struct sockaddr *)&listen_addr) < 0) {
-        fprintf(stderr, "cannot resolve address\n");
+        ERR("cannot resolve address");
         exit(-1);
       }
       break;
@@ -220,7 +217,7 @@ main(int argc, char **argv) {
       while (psk_str) {
         char *sep = strchr(psk_str, ':');
         if (sep) {
-          //printf("psk_str=%s\n", psk_str);
+          //DBG("psk_str=%s", psk_str);
           //sep = '\0';
           psk->id = (uint8_t*)psk_str;
           psk->id_length = sep-psk_str;
@@ -246,17 +243,17 @@ main(int argc, char **argv) {
   fd = socket(listen_addr.sin6_family, SOCK_DGRAM, 0);
 
   if (fd < 0) {
-    dtls_alert("socket: %s\n", strerror(errno));
+    ERR("socket: %s", strerror(errno));
     return 0;
   }
 
   if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) ) < 0) {
-    dtls_alert("setsockopt SO_REUSEADDR: %s\n", strerror(errno));
+    ERR("setsockopt SO_REUSEADDR: %s", strerror(errno));
   }
 
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    dtls_alert("fcntl: %s\n", strerror(errno));
+    ERR("fcntl: %s", strerror(errno));
     goto error;
   }
 
@@ -265,7 +262,7 @@ main(int argc, char **argv) {
   {
   case AF_INET:
     if (setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0) {
-      dtls_alert("setsockopt IP_PKTINFO: %s\n", strerror(errno));
+      ERR("setsockopt IP_PKTINFO: %s", strerror(errno));
     }
     break;
   case AF_INET6:
@@ -274,13 +271,13 @@ main(int argc, char **argv) {
 #else /* IPV6_RECVPKTINFO */
     if (setsockopt(fd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on) ) < 0) {
 #endif /* IPV6_RECVPKTINFO */
-      dtls_alert("setsockopt IPV6_PKTINFO: %s\n", strerror(errno));
+      ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
     }
     break;
   }
 
   if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
-    dtls_alert("bind: %s\n", strerror(errno));
+    ERR("bind: %s", strerror(errno));
     goto error;
   }
 
