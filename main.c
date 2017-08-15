@@ -123,17 +123,13 @@ static dtls_handler_t cb = {
 
 int
 main(int argc, char **argv) {
-  dtls_context_t *dtls_ctx = NULL;
-  fd_set rfds, wfds;
-  struct timeval timeout;
-  int opt, result;
-  uint8_t psk_buf[1024];
 
   proxy_context_t context;
+  char psk_buf[1024];
   memset(&context, 0, sizeof(proxy_context_t));
-
   memset(psk_buf, 0, sizeof(psk_buf));
 
+  int opt;
   while ((opt = getopt(argc, argv, "l:i:")) != -1) {
     char *sep = NULL;
     switch (opt) {
@@ -149,32 +145,10 @@ main(int argc, char **argv) {
       }
       break;
     case 'i' :
-      strncpy((char*)psk_buf, optarg, sizeof(psk_buf)-1);
-      keystore_t *psk = (keystore_t *)malloc(sizeof(keystore_t));
-      if (NULL==psk) {
+      strncpy(psk_buf, optarg, sizeof(psk_buf)-1);
+      context.psk = new_keystore(psk_buf);
+      if (NULL==context.psk) {
         exit(1);
-      }
-      memset(psk, 0, sizeof(keystore_t));
-      context.psk = psk; // first keymap pair
-      char *ptr = (char*)psk_buf;
-      char *psk_str = strtok_r((char*)psk_buf, ",", &ptr);
-      while (psk_str) {
-        sep = strchr(psk_str, ':');
-        if (sep) {
-          //DBG("psk_str=%s", psk_str);
-          //sep = '\0';
-          psk->id = (uint8_t*)psk_str;
-          psk->id_length = sep-psk_str;
-          psk->key = (uint8_t*)sep+1;
-          psk->key_length = strlen(sep+1);
-          psk->next = (keystore_t *)malloc(sizeof(keystore_t));
-          if (NULL==psk->next) {
-            exit(1);
-          }
-          psk = psk->next;
-          memset(psk, 0, sizeof(keystore_t));
-        }
-        psk_str = strtok_r(NULL, ",", &ptr);
       }
       break;
     default:
@@ -199,21 +173,23 @@ main(int argc, char **argv) {
 
   dtls_init();
 
-  dtls_ctx = dtls_new_context(&context);
+  context.dtls = dtls_new_context(&context);
 
-  dtls_set_handler(dtls_ctx, &cb);
+  dtls_set_handler(context.dtls, &cb);
 
   while (1) {
+    fd_set rfds, wfds;
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);
 
     FD_SET(fd, &rfds);
     /* FD_SET(fd, &wfds); */
 
+    struct timeval timeout;
     timeout.tv_sec = 5;
     timeout.tv_usec = 0;
 
-    result = select( fd+1, &rfds, &wfds, 0, &timeout);
+    int result = select( fd+1, &rfds, &wfds, 0, &timeout);
 
     if (result < 0) {                /* error */
       if (errno != EINTR)
@@ -223,12 +199,12 @@ main(int argc, char **argv) {
       if (FD_ISSET(fd, &wfds))
         ;
       else if (FD_ISSET(fd, &rfds)) {
-        dtls_handle_read(dtls_ctx);
+        dtls_handle_read(context.dtls);
       }
     }
   }
 
  error:
-  dtls_free_context(dtls_ctx);
+  dtls_free_context(context.dtls);
   exit(0);
 }

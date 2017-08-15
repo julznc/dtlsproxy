@@ -13,5 +13,10 @@ typedef struct keystore {
 } keystore_t;
 
 
+// psk_buf = "id1:key1,id2:key2,...,idN:keyN"
+keystore_t *new_keystore(char *psk_buf);
+
+void free_keystore(keystore_t *keystore);
+
 #endif // KEYSTORE_H
 

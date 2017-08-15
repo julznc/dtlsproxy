@@ -5,6 +5,7 @@
 #include "keystore.h"
 
 typedef struct proxy_context {
+    dtls_context_t *dtls;
     keystore_t *psk;
     session_t listen_addr;
     int listen_fd;
