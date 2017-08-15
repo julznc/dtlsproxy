@@ -8,15 +8,17 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <unistd.h>
-#include <netinet/in.h>
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <netdb.h>
+
 #include <signal.h>
 
 #include "proxy.h"
 #include "utils.h"
+
+static proxy_context_t context;
 
 #ifdef DTLS_PSK
 
@@ -70,8 +72,7 @@ send_to_peer(struct dtls_context_t *dtls_ctx,
                 &session->addr.sa, session->size);
 }
 
-static int
-dtls_handle_read(struct dtls_context_t *dtls_ctx) {
+int dtls_handle_read(struct dtls_context_t *dtls_ctx) {
   proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
   int fd = ctx->listen_fd;
   session_t session;
@@ -123,12 +124,23 @@ static dtls_handler_t cb = {
 #endif /* DTLS_ECC */
 };
 
-int
-main(int argc, char **argv) {
+static void handle_sigint(int signum)
+{
+    static int done = 0;
+    //DBG("%s done=%d", __func__, done);
+    if (done) {
+        return;
+    }
+    proxy_exit(&context);
+    done = 1;
+}
 
-  proxy_context_t context;
+int main(int argc, char **argv)
+{
   proxy_option_t option;
   char psk_buf[1024];
+
+  DBG("%s started", argv[0]);
 
   memset(&context, 0, sizeof(proxy_context_t));
   memset(&option, 0, sizeof(proxy_option_t));
@@ -180,38 +192,12 @@ main(int argc, char **argv) {
       return -1;
   }
 
-  /* init socket and set it to non-blocking */
-  int fd = context.listen_fd;
-
   dtls_set_handler(context.dtls, &cb);
 
-  while (1) {
-    fd_set rfds, wfds;
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-
-    FD_SET(fd, &rfds);
-    /* FD_SET(fd, &wfds); */
-
-    struct timeval timeout;
-    timeout.tv_sec = 5;
-    timeout.tv_usec = 0;
-
-    int result = select( fd+1, &rfds, &wfds, 0, &timeout);
-
-    if (result < 0) {                /* error */
-      if (errno != EINTR)
-        perror("select");
-    } else if (result == 0) {        /* timeout */
-    } else {                        /* ok */
-      if (FD_ISSET(fd, &wfds))
-        ;
-      else if (FD_ISSET(fd, &rfds)) {
-        dtls_handle_read(context.dtls);
-      }
-    }
-  }
+  signal(SIGINT, handle_sigint);
+  proxy_run(&context);
 
   proxy_deinit(&context);
+  DBG("%s exit", argv[0]);
   return 0;
 }

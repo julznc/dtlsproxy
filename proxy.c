@@ -45,19 +45,54 @@ int proxy_init(proxy_context_t *ctx,
     return 0;
 }
 
+
+// todo:
+int dtls_handle_read(struct dtls_context_t *dtls_ctx);
+
 int proxy_run(proxy_context_t *ctx)
 {
+    assert(NULL!=ctx);
+
+    ctx->running = 1;
+    while (ctx->running) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+
+        FD_SET(ctx->listen_fd, &rfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+
+        int result = select( ctx->listen_fd+1, &rfds, NULL, NULL, &timeout);
+        if (result < 0) {
+            perror("select");
+            ERR("select() failed: %s", strerror(errno));
+        } else if (0 == result) {
+            // timeout
+        } else {
+            if (FD_ISSET(ctx->listen_fd, &rfds)) {
+                dtls_handle_read(ctx->dtls);
+            }
+        }
+    }
+
     return 0;
 }
 
 void proxy_exit(proxy_context_t *ctx)
 {
-    //
+    assert(NULL!=ctx);
+
+    if (ctx->running) {
+        ctx->running = 0;
+    }
 }
 
 void proxy_deinit(proxy_context_t *ctx)
 {
     assert(NULL!=ctx);
+
     if (ctx->listen_fd > 0) {
         close (ctx->listen_fd);
         ctx->listen_fd = -1;

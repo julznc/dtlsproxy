@@ -21,6 +21,7 @@ typedef struct proxy_context {
     keystore_t *psk;
     session_t listen_addr;
     int listen_fd;
+    int running;
 } proxy_context_t;
 
 
