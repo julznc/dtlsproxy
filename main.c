@@ -176,7 +176,8 @@ main(int argc, char **argv) {
 
   if (0!=proxy_init(&context, &option, psk_buf)) {
       ERR("proxy init failed");
-      exit(-1);
+      proxy_deinit(&context);
+      return -1;
   }
 
   /* init socket and set it to non-blocking */
@@ -211,6 +212,6 @@ main(int argc, char **argv) {
     }
   }
 
-  dtls_free_context(context.dtls);
-  exit(0);
+  proxy_deinit(&context);
+  return 0;
 }

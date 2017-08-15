@@ -16,15 +16,22 @@ typedef struct proxy_option {
 } proxy_option_t;
 
 typedef struct proxy_context {
-    dtls_context_t *dtls;
-    const keystore_t *psk;
     const proxy_option_t *option;
+    dtls_context_t *dtls;
+    keystore_t *psk;
     session_t listen_addr;
     int listen_fd;
 } proxy_context_t;
 
+
 int proxy_init(proxy_context_t *ctx,
                const proxy_option_t *opt,
                char *psk_buf);
+
+int proxy_run(proxy_context_t *ctx);
+
+void proxy_exit(proxy_context_t *ctx);
+
+void proxy_deinit(proxy_context_t *ctx);
 
 #endif // PROXY_H

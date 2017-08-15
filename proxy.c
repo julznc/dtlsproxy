@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "proxy.h"
 #include "utils.h"
@@ -23,7 +24,7 @@ int proxy_init(proxy_context_t *ctx,
     /* init socket and set it to non-blocking */
     ctx->listen_fd = create_socket(&ctx->listen_addr);
 
-    if (ctx->listen_fd < 0) {
+    if (ctx->listen_fd <= 0) {
         ERR("socket: %s", strerror(errno));
         return -1;
     }
@@ -42,4 +43,26 @@ int proxy_init(proxy_context_t *ctx,
     }
 
     return 0;
+}
+
+int proxy_run(proxy_context_t *ctx)
+{
+    return 0;
+}
+
+void proxy_exit(proxy_context_t *ctx)
+{
+    //
+}
+
+void proxy_deinit(proxy_context_t *ctx)
+{
+    assert(NULL!=ctx);
+    if (ctx->listen_fd > 0) {
+        close (ctx->listen_fd);
+        ctx->listen_fd = -1;
+    }
+
+    dtls_free_context(ctx->dtls);
+    free_keystore(ctx->psk);
 }
