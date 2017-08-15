@@ -139,44 +139,43 @@ int proxy_init(proxy_context_t *ctx,
     return 0;
 }
 
+static void proxy_cb(EV_P_ ev_io *w, int revents)
+{
+    DBG("%s revents=%X", __func__, revents);
+    proxy_context_t *ctx = (proxy_context_t *)w->data;
+    dtls_handle_read(ctx->dtls);
+}
+
+static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
+{
+    DBG("%s fd=%d", __func__, ctx->listen_fd);
+    loop = ctx->loop;
+    ev_io_init(w, proxy_cb, ctx->listen_fd, EV_READ);
+    w->data = ctx;
+    ev_io_start(EV_A_ w);
+}
+
 int proxy_run(proxy_context_t *ctx)
 {
     assert(NULL!=ctx);
 
-    ctx->running = 1;
-    while (ctx->running) {
-        fd_set rfds;
-        FD_ZERO(&rfds);
+    struct ev_loop *loop = ev_default_loop(0);
+    ctx->loop = loop;
+    start_listen_io(EV_A_ &ctx->watcher, ctx);
 
-        FD_SET(ctx->listen_fd, &rfds);
-
-        struct timeval timeout;
-        timeout.tv_sec = 5;
-        timeout.tv_usec = 0;
-
-        int result = select( ctx->listen_fd+1, &rfds, NULL, NULL, &timeout);
-        if (result < 0) {
-            perror("select");
-            ERR("select() failed: %s", strerror(errno));
-        } else if (0 == result) {
-            // timeout
-        } else {
-            if (FD_ISSET(ctx->listen_fd, &rfds)) {
-                dtls_handle_read(ctx->dtls);
-            }
-        }
-    }
-
-    return 0;
+    return ev_run(EV_A_ 0);
 }
 
 void proxy_exit(proxy_context_t *ctx)
 {
     assert(NULL!=ctx);
 
-    if (ctx->running) {
-        ctx->running = 0;
-    }
+    struct ev_loop *loop = ctx->loop;
+
+    ev_io_stop(EV_A_ &ctx->watcher);
+
+    //DBG("call libev break()");
+    ev_break(EV_A_ EVBREAK_ALL);
 }
 
 void proxy_deinit(proxy_context_t *ctx)

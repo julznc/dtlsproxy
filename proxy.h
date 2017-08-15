@@ -3,6 +3,7 @@
 
 #include "address.h"
 #include "keystore.h"
+#include "session.h"
 
 typedef struct proxy_option {
     struct {
@@ -21,7 +22,8 @@ typedef struct proxy_context {
     keystore_t *psk;
     session_t listen_addr;
     int listen_fd;
-    int running;
+    struct ev_loop *loop;
+    ev_io watcher;
 } proxy_context_t;
 
 
