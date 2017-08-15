@@ -6,6 +6,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/types.h>
@@ -35,7 +36,7 @@ get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
   }
 
   if (id) {
-    for (keystore_t *psk=ctx->psk; psk && psk->id; psk=psk->next) {
+    for (const keystore_t *psk=ctx->psk; psk && psk->id; psk=psk->next) {
       //DBG("psk=%s\n", psk->id);
       if (id_len == psk->id_length && memcmp(id, psk->id, id_len) == 0) {
         if (result_length < psk->key_length) {
@@ -101,10 +102,11 @@ static void usage(const char *program) {
   if ( p )
     program = ++p;
 
-  printf("DTLS server (c) 2017 yus\n\n"
-         "usage: %s [-l listen host:port] [-i psk]\n"
-         "\t-l listen address\t\tlisten on specified host and port\n"
-         "\t-i num\t\tpsk identities\n", program);
+  printf("DTLS proxy server (c) 2017 yus\n\n"
+         "usage: %s -l <host:port> -b <host:port> -k <psk>\n"
+         "\t-l listen\tlisten on specified host and port\n"
+         "\t-b backend\tbackend server host and port\n"
+         "\t-k keys\t\tpsk identities (id1:key1,id2:key2,...,idN:keyN)\n", program);
   exit(1);
 }
 
@@ -125,12 +127,21 @@ int
 main(int argc, char **argv) {
 
   proxy_context_t context;
+  proxy_option_t option;
   char psk_buf[1024];
+
   memset(&context, 0, sizeof(proxy_context_t));
+  memset(&option, 0, sizeof(proxy_option_t));
   memset(psk_buf, 0, sizeof(psk_buf));
 
+  static const struct option lopts[] = {
+      {"backend", required_argument, 0, 'b'},
+      {"listen",  required_argument, 0, 'l'},
+      {"key",     required_argument, 0, 'k'},
+  };
+
   int opt;
-  while ((opt = getopt(argc, argv, "l:i:")) != -1) {
+  while ((opt = getopt_long(argc, argv, "b:l:k:", lopts, NULL)) != -1) {
     char *sep = NULL;
     switch (opt) {
     case 'l' :
@@ -139,12 +150,19 @@ main(int argc, char **argv) {
         usage(argv[0]);
       }
       *sep = '\0';
-      if (resolve_address(optarg, sep+1, &context.listen_addr) < 0) {
-        ERR("cannot resolve address");
-        exit(-1);
-      }
+      option.listen.host = optarg;
+      option.listen.port = sep+1;
       break;
-    case 'i' :
+    case 'b' :
+      sep = strrchr(optarg, ':');
+      if (!sep) {
+        usage(argv[0]);
+      }
+      *sep = '\0';
+      option.backend.host = optarg;
+      option.backend.port = sep+1;
+      break;
+    case 'k' :
       strncpy(psk_buf, optarg, sizeof(psk_buf)-1);
       context.psk = new_keystore(psk_buf);
       if (NULL==context.psk) {
@@ -156,24 +174,13 @@ main(int argc, char **argv) {
     }
   }
 
+  if (0!=proxy_init(&context, &option, psk_buf)) {
+      ERR("proxy init failed");
+      exit(-1);
+  }
+
   /* init socket and set it to non-blocking */
-  int fd = create_socket(&context.listen_addr);
-
-  if (fd < 0) {
-    ERR("socket: %s", strerror(errno));
-    return 0;
-  }
-
-  if (bind(fd, (struct sockaddr*)&context.listen_addr.addr, sizeof(context.listen_addr.addr)) < 0) {
-    ERR("bind: %s", strerror(errno));
-    goto error;
-  }
-
-  context.listen_fd = fd;
-
-  dtls_init();
-
-  context.dtls = dtls_new_context(&context);
+  int fd = context.listen_fd;
 
   dtls_set_handler(context.dtls, &cb);
 
@@ -204,7 +211,6 @@ main(int argc, char **argv) {
     }
   }
 
- error:
   dtls_free_context(context.dtls);
   exit(0);
 }
