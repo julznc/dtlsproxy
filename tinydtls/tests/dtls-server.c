@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -23,9 +24,9 @@
 
 typedef struct keymap {
   struct keymap *next;
-  unsigned char *id;
+  const uint8_t *id;
   size_t id_length;
-  unsigned char *key;
+  const uint8_t *key;
   size_t key_length;
 } keymap_t;
 
@@ -45,30 +46,22 @@ get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
              const unsigned char *id, size_t id_len,
              unsigned char *result, size_t result_length) {
 
-  keymap_t psk[3] = {
-    { NULL, (unsigned char *)"Client_identity", 15,
-      (unsigned char *)"secretPSK", 9 },
-    { NULL, (unsigned char *)"default identity", 16,
-      (unsigned char *)"\x11\x22\x33", 3 },
-    { NULL, (unsigned char *)"\0", 2,
-      (unsigned char *)"", 1 }
-  };
+  proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
 
   if (type != DTLS_PSK_KEY) {
     return 0;
   }
 
   if (id) {
-    int i;
-    for (i = 0; i < sizeof(psk)/sizeof(keymap_t); i++) {
-      if (id_len == psk[i].id_length && memcmp(id, psk[i].id, id_len) == 0) {
-        if (result_length < psk[i].key_length) {
-          dtls_warn("buffer too small for PSK");
+    for (keymap_t *psk=ctx->psk; psk && psk->id; psk=psk->next) {
+      //printf("psk=%s\n", psk->id);
+      if (id_len == psk->id_length && memcmp(id, psk->id, id_len) == 0) {
+        if (result_length < psk->key_length) {
+          printf("buffer too small for PSK\n");
           return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
         }
-
-        memcpy(result, psk[i].key, psk[i].key_length);
-        return psk[i].key_length;
+        memcpy(result, psk->key, psk->key_length);
+        return psk->key_length;
       }
     }
   }
@@ -84,6 +77,7 @@ read_from_peer(struct dtls_context_t *dtls_ctx,
   size_t i;
   for (i = 0; i < len; i++)
     printf("%c", data[i]);
+  printf("\n");
 
   return dtls_write(dtls_ctx, session, data, len);
 }
@@ -114,10 +108,10 @@ dtls_handle_read(struct dtls_context_t *dtls_ctx) {
     perror("recvfrom");
     return -1;
   } else {
-    dtls_debug("got %d bytes from port %d\n", len, 
+    printf("got %d bytes from port %u\n", len,
              ntohs(session.addr.sin6.sin6_port));
     if (sizeof(buf) < len) {
-      dtls_warn("packet was truncated (%d bytes lost)\n", len - sizeof(buf));
+      printf("packet was truncated (%lu bytes lost)\n", len - sizeof(buf));
     }
   }
 
@@ -199,17 +193,18 @@ static dtls_handler_t cb = {
 int 
 main(int argc, char **argv) {
   dtls_context_t *dtls_ctx = NULL;
-  log_t log_level = DTLS_LOG_WARN;
   fd_set rfds, wfds;
   struct timeval timeout;
   int fd, opt, result;
   int on = 1;
   struct sockaddr_in6 listen_addr;
+  uint8_t psk_buf[1024];
 
   proxy_context_t context;
   memset(&context, 0, sizeof(proxy_context_t));
 
   memset(&listen_addr, 0, sizeof(struct sockaddr_in6));
+  memset(psk_buf, 0, sizeof(psk_buf));
 
   /* fill extra field for 4.4BSD-based systems (see RFC 3493, section 3.4) */
 #if defined(SIN6_LEN) || defined(HAVE_SOCKADDR_IN6_SIN6_LEN)
@@ -220,7 +215,7 @@ main(int argc, char **argv) {
   listen_addr.sin6_port = htons(DEFAULT_PORT);
   listen_addr.sin6_addr = in6addr_any;
 
-  while ((opt = getopt(argc, argv, "A:p:v:")) != -1) {
+  while ((opt = getopt(argc, argv, "A:p:i:")) != -1) {
     switch (opt) {
     case 'A' :
       if (resolve_address(optarg, (struct sockaddr *)&listen_addr) < 0) {
@@ -231,16 +226,40 @@ main(int argc, char **argv) {
     case 'p' :
       listen_addr.sin6_port = htons(atoi(optarg));
       break;
-    case 'v' :
-      log_level = strtol(optarg, NULL, 10);
+    case 'i' :
+      strncpy((char*)psk_buf, optarg, sizeof(psk_buf)-1);
+      keymap_t *psk = (keymap_t *)malloc(sizeof(keymap_t));
+      if (NULL==psk) {
+        exit(1);
+      }
+      memset(psk, 0, sizeof(keymap_t));
+      context.psk = psk; // first keymap pair
+      char *ptr = (char*)psk_buf;
+      char *psk_str = strtok_r((char*)psk_buf, ",", &ptr);
+      while (psk_str) {
+        char *sep = strchr(psk_str, ':');
+        if (sep) {
+          //printf("psk_str=%s\n", psk_str);
+          //sep = '\0';
+          psk->id = (uint8_t*)psk_str;
+          psk->id_length = sep-psk_str;
+          psk->key = (uint8_t*)sep+1;
+          psk->key_length = strlen(sep+1);
+          psk->next = (keymap_t *)malloc(sizeof(keymap_t));
+          if (NULL==psk->next) {
+            exit(1);
+          }
+          psk = psk->next;
+          memset(psk, 0, sizeof(keymap_t));
+        }
+        psk_str = strtok_r(NULL, ",", &ptr);
+      }
       break;
     default:
       usage(argv[0], dtls_package_version());
       exit(1);
     }
   }
-
-  dtls_set_log_level(log_level);
 
   /* init socket and set it to non-blocking */
   fd = socket(listen_addr.sin6_family, SOCK_DGRAM, 0);
