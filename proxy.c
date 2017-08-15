@@ -37,20 +37,52 @@ static int get_psk_info(struct dtls_context_t *dtls_ctx,
 
 #endif /* DTLS_PSK */
 
-static int read_from_peer(struct dtls_context_t *dtls_ctx,
-                          session_t *session, uint8 *data, size_t len)
-{
-    dumpbytes(data, len);
-    return dtls_write(dtls_ctx, session, data, len);
-}
-
-static int send_to_peer(struct dtls_context_t *dtls_ctx,
-                        session_t *session, uint8 *data, size_t len)
+static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
+                             session_t *session, uint8 *data, size_t len)
 {
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
     int fd = ctx->listen_fd;
     return sendto(fd, data, len, MSG_DONTWAIT,
                   &session->addr.sa, session->size);
+}
+
+static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
+                               session_t *session, uint8 *data, size_t len)
+{
+    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, session);
+
+    DBG("%s: peer=%lx", __func__, (unsigned long)peer);
+
+    dumpbytes(data, len);
+    return dtls_write(dtls_ctx, session, data, len);
+}
+
+static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *session,
+                      dtls_alert_level_t level, unsigned short code)
+{
+    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, session);
+
+    DBG("%s: peer=%lx", __func__, (unsigned long)peer);
+
+    switch (code)
+    {
+    case DTLS_ALERT_CLOSE_NOTIFY:
+        DBG("%s: close notify", __func__);
+        break;
+    case DTLS_EVENT_CONNECT:
+        DBG("%s: connect", __func__);
+        break;
+    case DTLS_EVENT_CONNECTED:
+        DBG("%s: connected", __func__);
+        return 0;
+    case DTLS_EVENT_RENEGOTIATE:
+        DBG("%s: renegotiate", __func__);
+        break;
+    default:
+        DBG("%s: unknown event=%u (alert=%d)", __func__, code, level);
+        break;
+    }
+    return 0;
 }
 
 static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
@@ -81,9 +113,9 @@ static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
 }
 
 static dtls_handler_t cb = {
-    .write = send_to_peer,
-    .read  = read_from_peer,
-    .event = NULL,
+    .write = dtls_send_to_peer,
+    .read  = dtls_read_from_peer,
+    .event = dtls_event,
 #ifdef DTLS_PSK
     .get_psk_info = get_psk_info,
 #endif
