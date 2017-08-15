@@ -14,14 +14,8 @@
 #include <netdb.h>
 #include <signal.h>
 
-#include "tinydtls.h"
-#include "dtls.h"
-#include "dtls_debug.h"
-
 #include "proxy.h"
 #include "utils.h"
-
-#define DEFAULT_PORT 20220
 
 #ifdef DTLS_PSK
 
@@ -102,63 +96,16 @@ dtls_handle_read(struct dtls_context_t *dtls_ctx) {
   return dtls_handle_message(dtls_ctx, &session, buf, len);
 }
 
-static int
-resolve_address(const char *server, struct sockaddr *dst) {
-
-  struct addrinfo *res, *ainfo;
-  struct addrinfo hints;
-  static char addrstr[256];
-  int error;
-
-  memset(addrstr, 0, sizeof(addrstr));
-  if (server && strlen(server) > 0)
-    memcpy(addrstr, server, strlen(server));
-  else
-    memcpy(addrstr, "localhost", 9);
-
-  memset ((char *)&hints, 0, sizeof(hints));
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_family = AF_UNSPEC;
-
-  error = getaddrinfo(addrstr, "", &hints, &res);
-
-  if (error != 0) {
-    ERR("getaddrinfo(%s) %s", server, gai_strerror(error));
-    return error;
-  }
-
-  for (ainfo = res; ainfo != NULL; ainfo = ainfo->ai_next) {
-
-    switch (ainfo->ai_family) {
-    case AF_INET:
-    case AF_INET6:
-
-      memcpy(dst, ainfo->ai_addr, ainfo->ai_addrlen);
-      return ainfo->ai_addrlen;
-    default:
-      ;
-    }
-  }
-
-  freeaddrinfo(res);
-  return -1;
-}
-
-static void
-usage(const char *program, const char *version) {
-  const char *p;
-
-  p = strrchr( program, '/' );
+static void usage(const char *program) {
+  const char *p = strrchr( program, '/' );
   if ( p )
     program = ++p;
 
-  ERR("%s v%s -- DTLS server implementation\n"
-          "(c) 2011-2014 Olaf Bergmann <bergmann@tzi.org>\n\n"
-          "usage: %s [-A address] [-p port] [-i psk]\n"
-          "\t-A address\t\tlisten on specified address (default is ::)\n"
-          "\t-p port\t\tlisten on specified port (default is %d)\n"
-          "\t-i num\t\tpsk identities\n",
-           program, version, program, DEFAULT_PORT);
+  printf("DTLS server (c) 2017 yus\n\n"
+         "usage: %s [-l listen host:port] [-i psk]\n"
+         "\t-l listen address\t\tlisten on specified host and port\n"
+         "\t-i num\t\tpsk identities\n", program);
+  exit(1);
 }
 
 static dtls_handler_t cb = {
@@ -181,28 +128,26 @@ main(int argc, char **argv) {
   struct timeval timeout;
   int fd, opt, result;
   int on = 1;
-  struct sockaddr_in6 listen_addr;
   uint8_t psk_buf[1024];
 
   proxy_context_t context;
   memset(&context, 0, sizeof(proxy_context_t));
 
-  memset(&listen_addr, 0, sizeof(struct sockaddr_in6));
   memset(psk_buf, 0, sizeof(psk_buf));
 
-  listen_addr.sin6_port = htons(DEFAULT_PORT);
-  listen_addr.sin6_addr = in6addr_any;
-
-  while ((opt = getopt(argc, argv, "A:p:i:")) != -1) {
+  while ((opt = getopt(argc, argv, "l:i:")) != -1) {
+    char *sep = NULL;
     switch (opt) {
-    case 'A' :
-      if (resolve_address(optarg, (struct sockaddr *)&listen_addr) < 0) {
+    case 'l' :
+      sep = strrchr(optarg, ':');
+      if (!sep) {
+        usage(argv[0]);
+      }
+      *sep = '\0';
+      if (resolve_address(optarg, sep+1, &context.listen_addr) < 0) {
         ERR("cannot resolve address");
         exit(-1);
       }
-      break;
-    case 'p' :
-      listen_addr.sin6_port = htons(atoi(optarg));
       break;
     case 'i' :
       strncpy((char*)psk_buf, optarg, sizeof(psk_buf)-1);
@@ -215,7 +160,7 @@ main(int argc, char **argv) {
       char *ptr = (char*)psk_buf;
       char *psk_str = strtok_r((char*)psk_buf, ",", &ptr);
       while (psk_str) {
-        char *sep = strchr(psk_str, ':');
+        sep = strchr(psk_str, ':');
         if (sep) {
           //DBG("psk_str=%s", psk_str);
           //sep = '\0';
@@ -234,13 +179,12 @@ main(int argc, char **argv) {
       }
       break;
     default:
-      usage(argv[0], dtls_package_version());
-      exit(1);
+      usage(argv[0]);
     }
   }
 
   /* init socket and set it to non-blocking */
-  fd = socket(listen_addr.sin6_family, SOCK_DGRAM, 0);
+  fd = socket(context.listen_addr.addr.sa.sa_family, SOCK_DGRAM, 0);
 
   if (fd < 0) {
     ERR("socket: %s", strerror(errno));
@@ -258,7 +202,7 @@ main(int argc, char **argv) {
   }
 
   on = 1;
-  switch (listen_addr.sin6_family)
+  switch (context.listen_addr.addr.sa.sa_family)
   {
   case AF_INET:
     if (setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0) {
@@ -274,9 +218,12 @@ main(int argc, char **argv) {
       ERR("setsockopt IPV6_PKTINFO: %s", strerror(errno));
     }
     break;
+  default:
+    ERR("not supported sa_family");
+    exit(1);
   }
 
-  if (bind(fd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
+  if (bind(fd, (struct sockaddr*)&context.listen_addr.addr, sizeof(context.listen_addr.addr)) < 0) {
     ERR("bind: %s", strerror(errno));
     goto error;
   }
