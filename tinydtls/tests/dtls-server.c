@@ -20,26 +20,37 @@
 #define DEFAULT_PORT 20220
 
 #ifdef DTLS_PSK
+
+typedef struct keymap {
+  struct keymap *next;
+  unsigned char *id;
+  size_t id_length;
+  unsigned char *key;
+  size_t key_length;
+} keymap_t;
+
+
+typedef struct proxy_context {
+  keymap_t *psk;
+  int listen_fd;
+} proxy_context_t;
+
+
 /* This function is the "key store" for tinyDTLS. It is called to
  * retrieve a key for the given identity within this particular
  * session. */
 static int
-get_psk_info(struct dtls_context_t *ctx, const session_t *session,
+get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
              dtls_credentials_type_t type,
              const unsigned char *id, size_t id_len,
              unsigned char *result, size_t result_length) {
 
-  struct keymap_t {
-    unsigned char *id;
-    size_t id_length;
-    unsigned char *key;
-    size_t key_length;
-  } psk[3] = {
-    { (unsigned char *)"Client_identity", 15,
+  keymap_t psk[3] = {
+    { NULL, (unsigned char *)"Client_identity", 15,
       (unsigned char *)"secretPSK", 9 },
-    { (unsigned char *)"default identity", 16,
+    { NULL, (unsigned char *)"default identity", 16,
       (unsigned char *)"\x11\x22\x33", 3 },
-    { (unsigned char *)"\0", 2,
+    { NULL, (unsigned char *)"\0", 2,
       (unsigned char *)"", 1 }
   };
 
@@ -49,7 +60,7 @@ get_psk_info(struct dtls_context_t *ctx, const session_t *session,
 
   if (id) {
     int i;
-    for (i = 0; i < sizeof(psk)/sizeof(struct keymap_t); i++) {
+    for (i = 0; i < sizeof(psk)/sizeof(keymap_t); i++) {
       if (id_len == psk[i].id_length && memcmp(id, psk[i].id, id_len) == 0) {
         if (result_length < psk[i].key_length) {
           dtls_warn("buffer too small for PSK");
@@ -68,38 +79,35 @@ get_psk_info(struct dtls_context_t *ctx, const session_t *session,
 #endif /* DTLS_PSK */
 
 static int
-read_from_peer(struct dtls_context_t *ctx, 
+read_from_peer(struct dtls_context_t *dtls_ctx,
                session_t *session, uint8 *data, size_t len) {
   size_t i;
   for (i = 0; i < len; i++)
     printf("%c", data[i]);
 
-  return dtls_write(ctx, session, data, len);
+  return dtls_write(dtls_ctx, session, data, len);
 }
 
 static int
-send_to_peer(struct dtls_context_t *ctx, 
+send_to_peer(struct dtls_context_t *dtls_ctx,
              session_t *session, uint8 *data, size_t len) {
-
-  int fd = *(int *)dtls_get_app_data(ctx);
+  proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+  int fd = ctx->listen_fd;
   return sendto(fd, data, len, MSG_DONTWAIT,
                 &session->addr.sa, session->size);
 }
 
 static int
-dtls_handle_read(struct dtls_context_t *ctx) {
-  int *fd;
+dtls_handle_read(struct dtls_context_t *dtls_ctx) {
+  proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+  int fd = ctx->listen_fd;
   session_t session;
   static uint8 buf[DTLS_MAX_BUF];
   int len;
 
-  fd = dtls_get_app_data(ctx);
-
-  assert(fd);
-
   memset(&session, 0, sizeof(session_t));
   session.size = sizeof(session.addr);
-  len = recvfrom(*fd, buf, sizeof(buf), MSG_TRUNC,
+  len = recvfrom(fd, buf, sizeof(buf), MSG_TRUNC,
                  &session.addr.sa, &session.size);
 
   if (len < 0) {
@@ -113,7 +121,7 @@ dtls_handle_read(struct dtls_context_t *ctx) {
     }
   }
 
-  return dtls_handle_message(ctx, &session, buf, len);
+  return dtls_handle_message(dtls_ctx, &session, buf, len);
 }    
 
 static int
@@ -190,13 +198,16 @@ static dtls_handler_t cb = {
 
 int 
 main(int argc, char **argv) {
-  dtls_context_t *the_context = NULL;
+  dtls_context_t *dtls_ctx = NULL;
   log_t log_level = DTLS_LOG_WARN;
   fd_set rfds, wfds;
   struct timeval timeout;
   int fd, opt, result;
   int on = 1;
   struct sockaddr_in6 listen_addr;
+
+  proxy_context_t context;
+  memset(&context, 0, sizeof(proxy_context_t));
 
   memset(&listen_addr, 0, sizeof(struct sockaddr_in6));
 
@@ -273,11 +284,13 @@ main(int argc, char **argv) {
     goto error;
   }
 
+  context.listen_fd = fd;
+
   dtls_init();
 
-  the_context = dtls_new_context(&fd);
+  dtls_ctx = dtls_new_context(&context);
 
-  dtls_set_handler(the_context, &cb);
+  dtls_set_handler(dtls_ctx, &cb);
 
   while (1) {
     FD_ZERO(&rfds);
@@ -299,12 +312,12 @@ main(int argc, char **argv) {
       if (FD_ISSET(fd, &wfds))
         ;
       else if (FD_ISSET(fd, &rfds)) {
-        dtls_handle_read(the_context);
+        dtls_handle_read(dtls_ctx);
       }
     }
   }
   
  error:
-  dtls_free_context(the_context);
+  dtls_free_context(dtls_ctx);
   exit(0);
 }
