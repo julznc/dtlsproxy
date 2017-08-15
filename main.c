@@ -18,24 +18,11 @@
 #include "dtls.h"
 #include "dtls_debug.h"
 
+#include "proxy.h"
+
 #define DEFAULT_PORT 20220
 
 #ifdef DTLS_PSK
-
-typedef struct keymap {
-  struct keymap *next;
-  const uint8_t *id;
-  size_t id_length;
-  const uint8_t *key;
-  size_t key_length;
-} keymap_t;
-
-
-typedef struct proxy_context {
-  keymap_t *psk;
-  int listen_fd;
-} proxy_context_t;
-
 
 /* This function is the "key store" for tinyDTLS. It is called to
  * retrieve a key for the given identity within this particular
@@ -53,7 +40,7 @@ get_psk_info(struct dtls_context_t *dtls_ctx, const session_t *session,
   }
 
   if (id) {
-    for (keymap_t *psk=ctx->psk; psk && psk->id; psk=psk->next) {
+    for (keystore_t *psk=ctx->psk; psk && psk->id; psk=psk->next) {
       //printf("psk=%s\n", psk->id);
       if (id_len == psk->id_length && memcmp(id, psk->id, id_len) == 0) {
         if (result_length < psk->key_length) {
@@ -222,11 +209,11 @@ main(int argc, char **argv) {
       break;
     case 'i' :
       strncpy((char*)psk_buf, optarg, sizeof(psk_buf)-1);
-      keymap_t *psk = (keymap_t *)malloc(sizeof(keymap_t));
+      keystore_t *psk = (keystore_t *)malloc(sizeof(keystore_t));
       if (NULL==psk) {
         exit(1);
       }
-      memset(psk, 0, sizeof(keymap_t));
+      memset(psk, 0, sizeof(keystore_t));
       context.psk = psk; // first keymap pair
       char *ptr = (char*)psk_buf;
       char *psk_str = strtok_r((char*)psk_buf, ",", &ptr);
@@ -239,12 +226,12 @@ main(int argc, char **argv) {
           psk->id_length = sep-psk_str;
           psk->key = (uint8_t*)sep+1;
           psk->key_length = strlen(sep+1);
-          psk->next = (keymap_t *)malloc(sizeof(keymap_t));
+          psk->next = (keystore_t *)malloc(sizeof(keystore_t));
           if (NULL==psk->next) {
             exit(1);
           }
           psk = psk->next;
-          memset(psk, 0, sizeof(keymap_t));
+          memset(psk, 0, sizeof(keystore_t));
         }
         psk_str = strtok_r(NULL, ",", &ptr);
       }
