@@ -20,6 +20,7 @@ typedef struct proxy_context {
     const proxy_option_t *option;
     dtls_context_t *dtls;
     keystore_t *psk;
+    session_context_t *sessions;
     session_t listen_addr;
     int listen_fd;
     struct ev_loop *loop;

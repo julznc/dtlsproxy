@@ -57,10 +57,12 @@ static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
     return dtls_write(dtls_ctx, session, data, len);
 }
 
-static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *session,
+static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
                       dtls_alert_level_t level, unsigned short code)
 {
-    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, session);
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, dtls_session);
+    session_context_t *sc = NULL;
 
     DBG("%s: peer=%lx", __func__, (unsigned long)peer);
 
@@ -68,12 +70,21 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *session,
     {
     case DTLS_ALERT_CLOSE_NOTIFY:
         DBG("%s: close notify", __func__);
+        sc = find_session(ctx, dtls_session);
+        if (NULL!=sc) {
+            DBG("delete session %lx", (unsigned long)sc);
+            free_session(ctx, sc);
+        }
         break;
     case DTLS_EVENT_CONNECT:
         DBG("%s: connect", __func__);
         break;
     case DTLS_EVENT_CONNECTED:
-        DBG("%s: connected", __func__);
+        sc = new_session(ctx, peer);
+        if (NULL==sc) {
+            return -1;
+        }
+        DBG("%s: connected session %lx", __func__, (unsigned long)sc);
         return 0;
     case DTLS_EVENT_RENEGOTIATE:
         DBG("%s: renegotiate", __func__);
@@ -102,8 +113,7 @@ static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
         perror("recvfrom");
         return -1;
     } else {
-        DBG("got %d bytes from port %u", len,
-        ntohs(session.addr.sin6.sin6_port));
+        //DBG("got %d bytes from port %u", len, ntohs(session.addr.sin6.sin6_port));
         if (sizeof(buf) < len) {
             ERR("packet was truncated (%lu bytes lost)", len - sizeof(buf));
         }
@@ -173,7 +183,7 @@ int proxy_init(proxy_context_t *ctx,
 
 static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
-    DBG("%s revents=%X", __func__, revents);
+    //DBG("%s revents=%X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
     dtls_handle_read(ctx->dtls);
 }
@@ -217,6 +227,11 @@ void proxy_deinit(proxy_context_t *ctx)
     if (ctx->listen_fd > 0) {
         close (ctx->listen_fd);
         ctx->listen_fd = -1;
+    }
+
+    while(ctx->sessions) {
+        DBG("delete session %lx", (unsigned long)ctx->sessions);
+        free_session(ctx, ctx->sessions);
     }
 
     dtls_free_context(ctx->dtls);
