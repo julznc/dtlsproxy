@@ -194,7 +194,7 @@ dtls_init() {
    ? (Context)->h->which((Context), ##__VA_ARGS__)			\
    : -1)
 
-static int
+int
 dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
 		dtls_security_parameters_t *security , session_t *session,
 		unsigned char type, uint8 *buf_array[],
@@ -214,7 +214,7 @@ dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
  * \param buflen The actual length of \p buf.
  * \return Less than zero on error, the number of bytes written otherwise.
  */
-int
+static int
 dtls_send(dtls_context_t *ctx, dtls_peer_t *peer, unsigned char type,
 	  uint8 *buf, size_t buflen) {
   return dtls_send_multi(ctx, peer, dtls_security_params(peer), &peer->session,
@@ -1451,7 +1451,7 @@ dtls_send_handshake_msg(dtls_context_t *ctx,
  * @return Less than zero in case of an error or the number of
  *   bytes that have been sent otherwise.
  */
-static int
+int
 dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
 		dtls_security_parameters_t *security , session_t *session,
 		unsigned char type, uint8 *buf_array[],

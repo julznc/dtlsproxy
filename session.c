@@ -87,15 +87,15 @@ session_context_t *find_session(struct proxy_context *ctx,
     return session;
 }
 
-int dtls_send(dtls_context_t *ctx, dtls_peer_t *peer,
-              unsigned char type, uint8 *buf, size_t buflen);
+int
+dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
+        dtls_security_parameters_t *security , session_t *session,
+        unsigned char type, uint8 *buf_array[],
+        size_t buf_len_array[], size_t buf_array_len);
 
 static int relay_to_client(struct dtls_context_t *dtls_ctx,
                            session_t *addr, uint8 *buf, size_t len)
 {
-#if 0
-    return dtls_write(dtls_ctx, addr, buf, len);
-#else
     dtls_peer_t *peer = dtls_get_peer(dtls_ctx, addr);
 
     if (!peer) {
@@ -106,10 +106,11 @@ static int relay_to_client(struct dtls_context_t *dtls_ctx,
         if (peer->state != DTLS_STATE_CONNECTED) {
             return 0;
         } else {
-            return dtls_send(dtls_ctx, peer, DTLS_CT_APPLICATION_DATA, buf, len);
+            return dtls_send_multi(dtls_ctx, peer, dtls_security_params(peer),
+                                   &peer->session, DTLS_CT_APPLICATION_DATA,
+                                   &buf, &len, 1);
         }
     }
-#endif
 }
 
 static void session_cb(EV_P_ ev_io *w, int revents)
