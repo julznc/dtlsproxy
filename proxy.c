@@ -126,12 +126,17 @@ static dtls_handler_t cb = {
 
 // returns non-zero on error
 int proxy_init(proxy_context_t *ctx,
-               proxy_option_t *opt,
+               const proxy_option_t *opt,
                char *psk_buf)
 {
     assert (ctx && opt && psk_buf);
 
     ctx->option = opt;
+
+    if ((NULL==opt->listen.host) || (NULL==opt->listen.port) ||
+        (NULL==opt->backend.host) || (NULL==opt->backend.port)) {
+        return -1;
+    }
 
     ctx->psk = new_keystore(psk_buf);
     if (NULL==ctx->psk) {
@@ -140,28 +145,28 @@ int proxy_init(proxy_context_t *ctx,
 
     if (resolve_address(ctx->option->listen.host,
                         ctx->option->listen.port,
-                        &ctx->option->listen.addr) < 0) {
+                        &ctx->listen_addr) < 0) {
         ERR("cannot resolve listen address");
         return -1;
     }
 
     if (resolve_address(ctx->option->backend.host,
                         ctx->option->backend.port,
-                        &ctx->option->backend.addr) < 0) {
+                        &ctx->backend_addr) < 0) {
         ERR("cannot resolve backend address");
         return -1;
     }
 
     /* init socket and set it to non-blocking */
-    ctx->listen_fd = create_socket(&ctx->option->listen.addr);
+    ctx->listen_fd = create_socket(&ctx->listen_addr);
 
     if (ctx->listen_fd <= 0) {
         ERR("socket: %s", strerror(errno));
         return -1;
     }
 
-    if (bind(ctx->listen_fd, (struct sockaddr*)&ctx->option->listen.addr.addr,
-             sizeof(ctx->option->listen.addr.addr)) < 0) {
+    if (bind(ctx->listen_fd, (struct sockaddr*)&ctx->listen_addr.addr,
+             ctx->listen_addr.size) < 0) {
         ERR("bind: %s", strerror(errno));
         return -1;
     }

@@ -36,7 +36,7 @@ session_context_t *new_session(struct proxy_context *ctx,
         return NULL;
     }
 
-    session->backend_fd = create_socket(&ctx->option->backend.addr);
+    session->backend_fd = create_socket(&ctx->backend_addr);
     if (session->backend_fd <=0) {
         ERR("unable to create socket to backend");
         close(session->client_fd);
@@ -45,8 +45,8 @@ session_context_t *new_session(struct proxy_context *ctx,
     }
 
     if (0!=connect(session->backend_fd,
-                   &ctx->option->backend.addr.addr.sa,
-                   ctx->option->backend.addr.size)) {
+                   &ctx->backend_addr.addr.sa,
+                   ctx->backend_addr.size)) {
         ERR("connect to backend failed");
         close(session->client_fd);
         close(session->backend_fd);

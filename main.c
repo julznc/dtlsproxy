@@ -14,7 +14,7 @@ static void usage(const char *program)
     if ( p )
         program = ++p;
 
-    printf("DTLS proxy server (c) 2017 yus\n\n"
+    printf("DTLS reverse proxy server (c) 2017 yus\n\n"
         "usage: %s -l <host:port> -b <host:port> -k <psk>\n"
         "\t-l listen\tlisten on specified host and port\n"
         "\t-b backend\tbackend server host and port\n"
@@ -81,7 +81,7 @@ int main(int argc, char **argv)
     if (0!=proxy_init(&context, &option, psk_buf)) {
         ERR("proxy init failed");
         proxy_deinit(&context);
-        return -1;
+        usage(argv[0]);
     }
 
     signal(SIGINT, handle_sigint);
