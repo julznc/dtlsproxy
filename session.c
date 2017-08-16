@@ -87,6 +87,31 @@ session_context_t *find_session(struct proxy_context *ctx,
     return session;
 }
 
+int dtls_send(dtls_context_t *ctx, dtls_peer_t *peer,
+              unsigned char type, uint8 *buf, size_t buflen);
+
+static int relay_to_client(struct dtls_context_t *dtls_ctx,
+                           session_t *addr, uint8 *buf, size_t len)
+{
+#if 0
+    return dtls_write(dtls_ctx, addr, buf, len);
+#else
+    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, addr);
+
+    if (!peer) {
+        int res;
+        res = dtls_connect(dtls_ctx, addr);
+        return (res >= 0) ? 0 : res;
+    } else {
+        if (peer->state != DTLS_STATE_CONNECTED) {
+            return 0;
+        } else {
+            return dtls_send(dtls_ctx, peer, DTLS_CT_APPLICATION_DATA, buf, len);
+        }
+    }
+#endif
+}
+
 static void session_cb(EV_P_ ev_io *w, int revents)
 {
     DBG("%s revents=%04X", __func__, revents);
@@ -106,7 +131,7 @@ static void session_cb(EV_P_ ev_io *w, int revents)
             packet_len = res;
             //DBG("relay to client, len=%lu", packet_len);
             //dumpbytes(packet, packet_len);
-            dtls_write(sc->dtls, &sc->peer.session, packet, packet_len);
+            relay_to_client(sc->dtls, &sc->peer.session, packet, packet_len);
         }
     }
 }

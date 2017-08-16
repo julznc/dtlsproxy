@@ -214,7 +214,7 @@ dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
  * \param buflen The actual length of \p buf.
  * \return Less than zero on error, the number of bytes written otherwise.
  */
-static int
+int
 dtls_send(dtls_context_t *ctx, dtls_peer_t *peer, unsigned char type,
 	  uint8 *buf, size_t buflen) {
   return dtls_send_multi(ctx, peer, dtls_security_params(peer), &peer->session,
