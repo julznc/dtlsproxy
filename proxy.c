@@ -47,14 +47,24 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
 }
 
 static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
-                               session_t *session, uint8 *data, size_t len)
+                               session_t *dtls_session, uint8 *data, size_t len)
 {
-    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, session);
+    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
+    //dtls_peer_t *peer = dtls_get_peer(dtls_ctx, dtls_session);
 
-    DBG("%s: peer=%lx", __func__, (unsigned long)peer);
+    //DBG("%s: peer=%lx", __func__, (unsigned long)peer);
+    //dumpbytes(data, len);
 
-    dumpbytes(data, len);
+#if 0 // echo
     return dtls_write(dtls_ctx, session, data, len);
+#else
+    session_context_t *sc = find_session(ctx, dtls_session);
+    if (NULL!=sc) {
+        //DBG("forward to backend=%d", sc->backend_fd);
+        return send(sc->backend_fd, data, len, 0);
+    }
+    return -1;
+#endif
 }
 
 static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
@@ -73,6 +83,7 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         sc = find_session(ctx, dtls_session);
         if (NULL!=sc) {
             DBG("delete session %lx", (unsigned long)sc);
+            stop_session(ctx, sc);
             free_session(ctx, sc);
         }
         break;
@@ -85,6 +96,10 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
             return -1;
         }
         DBG("%s: connected session %lx", __func__, (unsigned long)sc);
+        if (0 != start_session(ctx, sc)) {
+            free_session(ctx, sc);
+            return -1;
+        }
         return 0;
     case DTLS_EVENT_RENEGOTIATE:
         DBG("%s: renegotiate", __func__);
@@ -192,7 +207,7 @@ int proxy_init(proxy_context_t *ctx,
 
 static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
-    //DBG("%s revents=%X", __func__, revents);
+    DBG("%s revents=%04X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
     dtls_handle_read(ctx->dtls);
 }
@@ -223,6 +238,11 @@ void proxy_exit(proxy_context_t *ctx)
 
     struct ev_loop *loop = ctx->loop;
 
+    session_context_t *sc = ctx->sessions;
+    while(sc) {
+        stop_session(ctx, sc);
+        sc = sc->next;
+    }
     ev_io_stop(EV_A_ &ctx->watcher);
 
     //DBG("call libev break()");
