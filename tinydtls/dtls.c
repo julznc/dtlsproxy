@@ -1224,7 +1224,7 @@ check_finished(dtls_context_t *ctx, dtls_peer_t *peer,
  *                undefined. 
  * \return Less than zero on error, or greater than zero success.
  */
-int
+static int
 dtls_prepare_record(dtls_peer_t *peer, dtls_security_parameters_t *security,
 		    unsigned char type,
 		    uint8 *data_array[], size_t data_len_array[],
