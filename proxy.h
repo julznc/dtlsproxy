@@ -9,19 +9,20 @@ typedef struct proxy_option {
     struct {
         const char *host;
         const char *port;
+        session_t   addr;
     } listen;
     struct {
         const char *host;
         const char *port;
+        session_t   addr;
     } backend;
 } proxy_option_t;
 
 typedef struct proxy_context {
-    const proxy_option_t *option;
+    proxy_option_t *option;
     dtls_context_t *dtls;
     keystore_t *psk;
     session_context_t *sessions;
-    session_t listen_addr;
     int listen_fd;
     struct ev_loop *loop;
     ev_io watcher;
@@ -29,7 +30,7 @@ typedef struct proxy_context {
 
 
 int proxy_init(proxy_context_t *ctx,
-               const proxy_option_t *opt,
+               proxy_option_t *opt,
                char *psk_buf);
 
 int proxy_run(proxy_context_t *ctx);
