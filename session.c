@@ -88,10 +88,47 @@ session_context_t *find_session(struct proxy_context *ctx,
 }
 
 int
-dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
-        dtls_security_parameters_t *security , session_t *session,
-        unsigned char type, uint8 *buf_array[],
-        size_t buf_len_array[], size_t buf_array_len);
+dtls_prepare_record(dtls_peer_t *peer, dtls_security_parameters_t *security,
+            unsigned char type,
+            uint8 *data_array[], size_t data_len_array[],
+            size_t data_array_len,
+            uint8 *sendbuf, size_t *rlen);
+
+int send_client_data(dtls_context_t *dtls_ctx, dtls_peer_t *peer,
+        dtls_security_parameters_t *security , session_t *addr,
+        uint8 *buf_array[], size_t buf_len_array[], size_t buf_array_len)
+{
+    unsigned char sendbuf[DTLS_MAX_BUF];
+    size_t len = sizeof(sendbuf);
+    int res;
+    unsigned int i;
+    size_t overall_len = 0;
+
+    res = dtls_prepare_record(peer, security, DTLS_CT_APPLICATION_DATA,
+                              buf_array, buf_len_array, buf_array_len, sendbuf, &len);
+
+    if (res < 0)
+      return res;
+
+    for (i = 0; i < buf_array_len; i++) {
+      overall_len += buf_len_array[i];
+    }
+
+    proxy_context_t *ctx = (proxy_context_t *)dtls_ctx->app;
+    session_context_t *sc = find_session(ctx, addr);
+    //res = CALL(ctx, write, session, sendbuf, len);
+    //DBG("%s session_context = %lx", __func__, (unsigned long)sc);
+    if (NULL!=sc) {
+        //res = sendto(sc->client_fd, sendbuf, len, MSG_DONTWAIT,
+        //             &sc->peer.session.addr.sa, sc->peer.session.size);
+                     //&addr->addr.sa, addr->size);
+        res = sendto(ctx->listen_fd, sendbuf, len, MSG_DONTWAIT,
+                     &sc->peer.session.addr.sa, sc->peer.session.size);
+    }
+    //DBG("%s res = %d", __func__, res);
+
+    return res <= 0 ? res : overall_len - (len - res);
+}
 
 static int relay_to_client(struct dtls_context_t *dtls_ctx,
                            session_t *addr, uint8 *buf, size_t len)
@@ -106,9 +143,8 @@ static int relay_to_client(struct dtls_context_t *dtls_ctx,
         if (peer->state != DTLS_STATE_CONNECTED) {
             return 0;
         } else {
-            return dtls_send_multi(dtls_ctx, peer, dtls_security_params(peer),
-                                   &peer->session, DTLS_CT_APPLICATION_DATA,
-                                   &buf, &len, 1);
+            return send_client_data(dtls_ctx, peer, dtls_security_params(peer),
+                                    &peer->session, &buf, &len, 1);
         }
     }
 }

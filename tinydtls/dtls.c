@@ -194,7 +194,7 @@ dtls_init() {
    ? (Context)->h->which((Context), ##__VA_ARGS__)			\
    : -1)
 
-int
+static int
 dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
 		dtls_security_parameters_t *security , session_t *session,
 		unsigned char type, uint8 *buf_array[],
@@ -1224,7 +1224,7 @@ check_finished(dtls_context_t *ctx, dtls_peer_t *peer,
  *                undefined. 
  * \return Less than zero on error, or greater than zero success.
  */
-static int
+int
 dtls_prepare_record(dtls_peer_t *peer, dtls_security_parameters_t *security,
 		    unsigned char type,
 		    uint8 *data_array[], size_t data_len_array[],
@@ -1451,7 +1451,7 @@ dtls_send_handshake_msg(dtls_context_t *ctx,
  * @return Less than zero in case of an error or the number of
  *   bytes that have been sent otherwise.
  */
-int
+static int
 dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
 		dtls_security_parameters_t *security , session_t *session,
 		unsigned char type, uint8 *buf_array[],
