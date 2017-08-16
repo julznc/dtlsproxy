@@ -28,6 +28,14 @@ session_context_t *new_session(struct proxy_context *ctx,
         return NULL;
     }
 
+    if (0!=bind(session->client_fd,
+                   &ctx->listen_addr.addr.sa,
+                   ctx->listen_addr.size)) {
+        ERR("bind client failed");
+        close(session->client_fd);
+        return NULL;
+    }
+
     if (0!=connect(session->client_fd,
                    &peer->session.addr.sa,
                    peer->session.size)) {
@@ -113,11 +121,8 @@ int send_client_data(dtls_context_t *dtls_ctx, dtls_peer_t *peer,
     session_context_t *sc = find_session(ctx, addr);
     //DBG("%s session_context = %lx", __func__, (unsigned long)sc);
     if (NULL!=sc) {
-        //res = sendto(sc->client_fd, sendbuf, len, MSG_DONTWAIT,
-        //             &sc->peer.session.addr.sa, sc->peer.session.size);
-                     //&addr->addr.sa, addr->size);
-        res = sendto(ctx->listen_fd, sendbuf, len, MSG_DONTWAIT,
-                     &sc->peer.session.addr.sa, sc->peer.session.size);
+        res = sendto(sc->client_fd, sendbuf, len, MSG_DONTWAIT,
+                     &addr->addr.sa, addr->size);
     }
     //DBG("%s res = %d", __func__, res);
 
