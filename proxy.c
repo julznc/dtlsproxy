@@ -82,8 +82,8 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         DBG("%s: close notify", __func__);
         sc = find_session(ctx, dtls_session);
         if (NULL!=sc) {
-            DBG("delete session %lx", (unsigned long)sc);
             stop_session(ctx, sc);
+            DBG("delete session %lx", (unsigned long)sc);
             free_session(ctx, sc);
         }
         break;
@@ -109,32 +109,6 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         break;
     }
     return 0;
-}
-
-static int dtls_handle_read(struct dtls_context_t *dtls_ctx)
-{
-    proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
-
-    session_t session;
-    static uint8 buf[DTLS_MAX_BUF];
-    int len;
-
-    memset(&session, 0, sizeof(session_t));
-    session.size = sizeof(session.addr);
-    len = recvfrom(ctx->listen_fd, buf, sizeof(buf), MSG_TRUNC,
-                   &session.addr.sa, &session.size);
-
-    if (len < 0) {
-        perror("recvfrom");
-        return -1;
-    } else {
-        //DBG("got %d bytes from port %u", len, ntohs(session.addr.sin6.sin6_port));
-        if (sizeof(buf) < len) {
-            ERR("packet was truncated (%lu bytes lost)", len - sizeof(buf));
-        }
-    }
-
-    return dtls_handle_message(dtls_ctx, &session, buf, len);
 }
 
 static dtls_handler_t cb = {
@@ -209,10 +183,31 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
     DBG("%s revents=%04X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
-    dtls_handle_read(ctx->dtls);
+
+    session_t session;
+    static uint8 buf[DTLS_MAX_BUF];
+    int len;
+
+    memset(&session, 0, sizeof(session_t));
+    session.size = sizeof(session.addr);
+    len = recvfrom(ctx->listen_fd, buf, sizeof(buf), MSG_TRUNC,
+                   &session.addr.sa, &session.size);
+
+    if (len < 0) {
+        perror("recvfrom");
+        return;
+    } else {
+        //DBG("got %d bytes from port %u", len, ntohs(session.addr.sin6.sin6_port));
+        if (sizeof(buf) < len) {
+            ERR("packet was truncated (%lu bytes lost)", len - sizeof(buf));
+        }
+    }
+
+    dtls_handle_message(ctx->dtls, &session, buf, len);
+
 }
 
-static void start_listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
+static void listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
 {
     DBG("%s fd=%d", __func__, ctx->listen_fd);
     loop = ctx->loop;
@@ -227,7 +222,7 @@ int proxy_run(proxy_context_t *ctx)
 
     struct ev_loop *loop = ev_default_loop(0);
     ctx->loop = loop;
-    start_listen_io(EV_A_ &ctx->watcher, ctx);
+    listen_io(EV_A_ &ctx->watcher, ctx);
 
     return ev_run(EV_A_ 0);
 }
