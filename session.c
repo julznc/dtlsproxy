@@ -21,6 +21,13 @@ session_context_t *new_session(struct proxy_context *ctx,
     memcpy(&session->peer, peer, sizeof(dtls_peer_t));
     session->dtls = ctx->dtls;
 
+    backend_context_t *backend = next_backend(ctx);
+    if (NULL==backend) {
+        ERR("no available backend");
+        free(session);
+        return NULL;
+    }
+
     session->client_fd = create_socket(&peer->session);
     if (session->client_fd <=0) {
         ERR("unable to create socket to client");
@@ -44,7 +51,7 @@ session_context_t *new_session(struct proxy_context *ctx,
         return NULL;
     }
 
-    session->backend_fd = create_socket(&ctx->backends->address);
+    session->backend_fd = create_socket(&backend->address);
     if (session->backend_fd <=0) {
         ERR("unable to create socket to backend");
         close(session->client_fd);
@@ -53,14 +60,15 @@ session_context_t *new_session(struct proxy_context *ctx,
     }
 
     if (0!=connect(session->backend_fd,
-                   &ctx->backends->address.addr.sa,
-                   ctx->backends->address.size)) {
+                   &backend->address.addr.sa,
+                   backend->address.size)) {
         ERR("connect to backend failed");
         close(session->client_fd);
         close(session->backend_fd);
         return NULL;
     }
 
+    DBG("linked to backend %u", backend->address.ifindex);
     LL_PREPEND(ctx->sessions, session);
     return session;
 }
@@ -222,7 +230,7 @@ static int relay_to_client(session_context_t *session, uint8 *buf, size_t buf_le
 
 static void session_cb(EV_P_ ev_io *w, int revents)
 {
-    DBG("%s revents=%04X", __func__, revents);
+    //DBG("%s revents=%04X", __func__, revents);
 
     unsigned char packet[DTLS_MAX_BUF];
     size_t packet_len = 0;

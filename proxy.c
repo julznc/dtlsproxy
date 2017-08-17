@@ -206,7 +206,7 @@ int proxy_init(proxy_context_t *ctx,
 
 static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
-    DBG("%s revents=%04X", __func__, revents);
+    //DBG("%s revents=%04X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
 
     session_t session;
@@ -278,9 +278,9 @@ void proxy_deinit(proxy_context_t *ctx)
         ctx->listen.fd = -1;
     }
 
-    while(ctx->backends) {
-        DBG("delete backend %lx", (unsigned long)ctx->backends);
-        free_backend(ctx, ctx->backends);
+    while(ctx->backends.addr) {
+        DBG("delete backend %u", ctx->backends.addr->address.ifindex);
+        free_backend(ctx, ctx->backends.addr);
     }
 
     while(ctx->sessions) {

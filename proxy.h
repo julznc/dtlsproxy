@@ -14,7 +14,11 @@ typedef struct proxy_context {
         session_t addr;
         int fd;
     } listen;
-    backend_context_t *backends;
+    struct {
+        backend_context_t *addr;
+        uint8_t count;
+        uint8_t current;
+    } backends;
     session_context_t *sessions;
     struct ev_loop *loop;
     ev_io watcher;
