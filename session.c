@@ -29,8 +29,8 @@ session_context_t *new_session(struct proxy_context *ctx,
     }
 
     if (0!=bind(session->client_fd,
-                   &ctx->listen_addr.addr.sa,
-                   ctx->listen_addr.size)) {
+                   &ctx->listen.addr->addr.sa,
+                   ctx->listen.addr->size)) {
         ERR("bind client failed");
         close(session->client_fd);
         return NULL;
@@ -44,7 +44,7 @@ session_context_t *new_session(struct proxy_context *ctx,
         return NULL;
     }
 
-    session->backend_fd = create_socket(&ctx->backend_addr);
+    session->backend_fd = create_socket(ctx->backends.addr);
     if (session->backend_fd <=0) {
         ERR("unable to create socket to backend");
         close(session->client_fd);
@@ -53,8 +53,8 @@ session_context_t *new_session(struct proxy_context *ctx,
     }
 
     if (0!=connect(session->backend_fd,
-                   &ctx->backend_addr.addr.sa,
-                   ctx->backend_addr.size)) {
+                   &ctx->backends.addr->addr.sa,
+                   ctx->backends.addr->size)) {
         ERR("connect to backend failed");
         close(session->client_fd);
         close(session->backend_fd);

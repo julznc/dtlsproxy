@@ -41,7 +41,7 @@ static int dtls_send_to_peer(struct dtls_context_t *dtls_ctx,
                              session_t *session, uint8 *data, size_t len)
 {
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
-    int fd = ctx->listen_fd;
+    int fd = ctx->listen.fd;
     return sendto(fd, data, len, MSG_DONTWAIT,
                   &session->addr.sa, session->size);
 }
@@ -143,30 +143,45 @@ int proxy_init(proxy_context_t *ctx,
         return -1;
     }
 
+    session_t *listen_addr = (session_t *)malloc(sizeof(session_t));
+    if (NULL==listen_addr) {
+        ERR("cannot allocate listen address");
+        return -1;
+    }
+    memset(listen_addr, 0, sizeof(session_t));
     if (resolve_address(ctx->option->listen.host,
                         ctx->option->listen.port,
-                        &ctx->listen_addr) < 0) {
+                        listen_addr) < 0) {
         ERR("cannot resolve listen address");
         return -1;
     }
+    ctx->listen.addr = listen_addr;
 
+    session_t *backend_addr = (session_t *)malloc(sizeof(session_t));
+    if (NULL==backend_addr) {
+        ERR("cannot allocate backend address");
+        return -1;
+    }
+    memset(backend_addr, 0, sizeof(session_t));
     if (resolve_address(ctx->option->backend.host,
                         ctx->option->backend.port,
-                        &ctx->backend_addr) < 0) {
+                        backend_addr) < 0) {
         ERR("cannot resolve backend address");
         return -1;
     }
+    ctx->backends.addr = backend_addr;
+    ctx->backends.count = 1; // todo
 
     /* init socket and set it to non-blocking */
-    ctx->listen_fd = create_socket(&ctx->listen_addr);
+    ctx->listen.fd = create_socket(ctx->listen.addr);
 
-    if (ctx->listen_fd <= 0) {
+    if (ctx->listen.fd <= 0) {
         ERR("socket: %s", strerror(errno));
         return -1;
     }
 
-    if (bind(ctx->listen_fd, (struct sockaddr*)&ctx->listen_addr.addr,
-             ctx->listen_addr.size) < 0) {
+    if (bind(ctx->listen.fd, (struct sockaddr*)&ctx->listen.addr->addr,
+             ctx->listen.addr->size) < 0) {
         ERR("bind: %s", strerror(errno));
         return -1;
     }
@@ -195,7 +210,7 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
     memset(&session, 0, sizeof(session_t));
     session.size = sizeof(session.addr);
-    len = recvfrom(ctx->listen_fd, buf, sizeof(buf), MSG_TRUNC,
+    len = recvfrom(ctx->listen.fd, buf, sizeof(buf), MSG_TRUNC,
                    &session.addr.sa, &session.size);
 
     if (len < 0) {
@@ -214,9 +229,9 @@ static void proxy_cb(EV_P_ ev_io *w, int revents)
 
 static void listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
 {
-    DBG("%s fd=%d", __func__, ctx->listen_fd);
+    DBG("%s fd=%d", __func__, ctx->listen.fd);
     loop = ctx->loop;
-    ev_io_init(w, proxy_cb, ctx->listen_fd, EV_READ);
+    ev_io_init(w, proxy_cb, ctx->listen.fd, EV_READ);
     w->data = ctx;
     ev_io_start(EV_A_ w);
 }
@@ -253,9 +268,21 @@ void proxy_deinit(proxy_context_t *ctx)
 {
     assert(NULL!=ctx);
 
-    if (ctx->listen_fd > 0) {
-        close (ctx->listen_fd);
-        ctx->listen_fd = -1;
+    if (ctx->listen.fd > 0) {
+        close (ctx->listen.fd);
+        ctx->listen.fd = -1;
+    }
+
+    if (NULL!=ctx->listen.addr) {
+        free (ctx->listen.addr);
+        ctx->listen.addr = NULL;
+    }
+
+    if (NULL!=ctx->backends.addr) {
+        free (ctx->backends.addr);
+        ctx->backends.addr = NULL;
+        ctx->backends.count = 0;
+        ctx->backends.index = 0;
     }
 
     while(ctx->sessions) {

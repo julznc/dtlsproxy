@@ -20,10 +20,16 @@ typedef struct proxy_context {
     const proxy_option_t *option;
     dtls_context_t *dtls;
     keystore_t *psk;
+    struct {
+        session_t *addr;
+        int fd;
+    } listen;
+    struct {
+        session_t *addr;
+        unsigned count;
+        unsigned index;
+    } backends;
     session_context_t *sessions;
-    session_t listen_addr;
-    session_t backend_addr;
-    int listen_fd;
     struct ev_loop *loop;
     ev_io watcher;
 } proxy_context_t;
