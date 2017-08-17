@@ -60,7 +60,7 @@ int resolve_address(const char *host, const char *port, session_t *addr)
 
     if (error != 0) {
         ERR("getaddrinfo: %s", gai_strerror(error));
-        return error;
+        return -1;
     }
 
     int len = -1;

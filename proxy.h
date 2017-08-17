@@ -2,6 +2,7 @@
 #define PROXY_H
 
 #include "address.h"
+#include "backend.h"
 #include "keystore.h"
 #include "session.h"
 
@@ -10,14 +11,10 @@ typedef struct proxy_context {
     dtls_context_t *dtls;
     keystore_t *psk;
     struct {
-        session_t *addr;
+        session_t addr;
         int fd;
     } listen;
-    struct {
-        session_t *addr;
-        unsigned count;
-        unsigned index;
-    } backends;
+    backend_context_t *backends;
     session_context_t *sessions;
     struct ev_loop *loop;
     ev_io watcher;

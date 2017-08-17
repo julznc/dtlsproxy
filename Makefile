@@ -4,7 +4,7 @@ PROGRAM  := dtlsproxy
 LIBDTLS_DIR := ./tinydtls
 LIBDTLS     := $(LIBDTLS_DIR)/libtinydtls.a
 
-SOURCES := main.c utils.c proxy.c keystore.c address.c session.c
+SOURCES := main.c utils.c proxy.c keystore.c address.c backend.c session.c
 OBJECTS := $(patsubst %.c, %.o, $(SOURCES))
 
 INCLUDES := -I. -I$(LIBDTLS_DIR)

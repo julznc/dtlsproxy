@@ -131,53 +131,31 @@ static int init_addresses(proxy_context_t *ctx,
 {
     assert (ctx && listen_addr_buf && backends_addr_buf);
 
-    char addrbuf[125];
-
     char *sep = NULL;
-
-    session_t *listen_addr = (session_t *)malloc(sizeof(session_t));
-    if (NULL==listen_addr) {
-        ERR("cannot allocate listen address");
-        return -1;
-    }
-    memset(listen_addr, 0, sizeof(session_t));
-
     if (NULL == (sep = strrchr(listen_addr_buf, ':'))) {
         return -1;
     }
     *sep = '\0';
 
-    if (0!=resolve_address(listen_addr_buf, sep+1, listen_addr)) {
+    if (resolve_address(listen_addr_buf, sep+1, &ctx->listen.addr) < 0) {
         ERR("cannot resolve listen address");
         return -1;
     }
-    ctx->listen.addr = listen_addr;
+
+    char addrbuf[64];
     memset(addrbuf, 0, sizeof(addrbuf));
-    print_address(ctx->listen.addr, addrbuf, sizeof(addrbuf)-1);
+    print_address(&ctx->listen.addr, addrbuf, sizeof(addrbuf)-1);
     DBG("listen: %s", addrbuf);
 
-    session_t *backend_addr = (session_t *)malloc(sizeof(session_t));
-    if (NULL==backend_addr) {
-        ERR("cannot allocate backend address");
-        return -1;
+    char *ptr = backends_addr_buf;
+    char *addr_str = strtok_r(backends_addr_buf, ",", &ptr);
+    while (addr_str) {
+        if (NULL==new_backend(ctx, addr_str)) {
+            ERR("new_backend(%s) failed", addr_str);
+            return -1;
+        }
+        addr_str = strtok_r(NULL, ",", &ptr);
     }
-    memset(backend_addr, 0, sizeof(session_t));
-
-    if (NULL == (sep = strrchr(backends_addr_buf, ':'))) {
-        return -1;
-    }
-    *sep = '\0';
-
-    if (0!=resolve_address(backends_addr_buf, sep+1, backend_addr)) {
-        ERR("cannot resolve backend address");
-        return -1;
-    }
-    ctx->backends.addr = backend_addr;
-    ctx->backends.count = 1; // todo
-
-    memset(addrbuf, 0, sizeof(addrbuf));
-    print_address(ctx->backends.addr, addrbuf, sizeof(addrbuf)-1);
-    DBG("backend: %s", addrbuf);
 
     return 0;
 }
@@ -200,15 +178,15 @@ int proxy_init(proxy_context_t *ctx,
     }
 
     /* init socket and set it to non-blocking */
-    ctx->listen.fd = create_socket(ctx->listen.addr);
+    ctx->listen.fd = create_socket(&ctx->listen.addr);
 
     if (ctx->listen.fd <= 0) {
         ERR("socket: %s", strerror(errno));
         return -1;
     }
 
-    if (bind(ctx->listen.fd, (struct sockaddr*)&ctx->listen.addr->addr,
-             ctx->listen.addr->size) < 0) {
+    if (bind(ctx->listen.fd, (struct sockaddr*)&ctx->listen.addr.addr,
+             ctx->listen.addr.size) < 0) {
         ERR("bind: %s", strerror(errno));
         return -1;
     }
@@ -300,16 +278,9 @@ void proxy_deinit(proxy_context_t *ctx)
         ctx->listen.fd = -1;
     }
 
-    if (NULL!=ctx->listen.addr) {
-        free (ctx->listen.addr);
-        ctx->listen.addr = NULL;
-    }
-
-    if (NULL!=ctx->backends.addr) {
-        free (ctx->backends.addr);
-        ctx->backends.addr = NULL;
-        ctx->backends.count = 0;
-        ctx->backends.index = 0;
+    while(ctx->backends) {
+        DBG("delete backend %lx", (unsigned long)ctx->backends);
+        free_backend(ctx, ctx->backends);
     }
 
     while(ctx->sessions) {
