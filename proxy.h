@@ -5,19 +5,8 @@
 #include "keystore.h"
 #include "session.h"
 
-typedef struct proxy_option {
-    struct {
-        const char *host;
-        const char *port;
-    } listen;
-    struct {
-        const char *host;
-        const char *port;
-    } backend;
-} proxy_option_t;
 
 typedef struct proxy_context {
-    const proxy_option_t *option;
     dtls_context_t *dtls;
     keystore_t *psk;
     struct {
@@ -36,7 +25,8 @@ typedef struct proxy_context {
 
 
 int proxy_init(proxy_context_t *ctx,
-               const proxy_option_t *opt,
+               char *listen_addr_buf,
+               char *backends_addr_buf,
                char *psk_buf);
 
 int proxy_run(proxy_context_t *ctx);

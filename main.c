@@ -17,7 +17,7 @@ static void usage(const char *program)
     printf("DTLS reverse proxy server (c) 2017 yus\n\n"
         "usage: %s -l <host:port> -b <host:port> -k <psk>\n"
         "\t-l listen\tlisten on specified host and port\n"
-        "\t-b backend\tbackend server host and port\n"
+        "\t-b backends\tbackend server hosts and ports\n"
         "\t-k keys\t\tpsk identities (id1:key1,id2:key2,...,idN:keyN)\n", program);
     exit(1);
 }
@@ -35,40 +35,31 @@ static void handle_sigint(int signum)
 
 int main(int argc, char **argv)
 {
-    proxy_option_t option;
-    char psk_buf[1024];
+    char listen_addr_buf[128];
+    char backends_addr_buf[512];
+    char psk_buf[512];
 
     DBG("%s started", argv[0]);
 
     memset(&context, 0, sizeof(proxy_context_t));
-    memset(&option, 0, sizeof(proxy_option_t));
+    memset(listen_addr_buf, 0, sizeof(listen_addr_buf));
+    memset(backends_addr_buf, 0, sizeof(backends_addr_buf));
     memset(psk_buf, 0, sizeof(psk_buf));
 
     static const struct option lopts[] = {
-        {"backend", required_argument, 0, 'b'},
-        {"listen",  required_argument, 0, 'l'},
-        {"key",     required_argument, 0, 'k'},
+        {"listen",   required_argument, 0, 'l'},
+        {"backends", required_argument, 0, 'b'},
+        {"key",      required_argument, 0, 'k'},
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "b:l:k:", lopts, NULL)) != -1) {
-        char *sep = NULL;
+    while ((opt = getopt_long(argc, argv, "l:b:k:", lopts, NULL)) != -1) {
         switch (opt) {
         case 'l' :
-            if (NULL == (sep = strrchr(optarg, ':'))) {
-                usage(argv[0]);
-            }
-            *sep = '\0';
-            option.listen.host = optarg;
-            option.listen.port = sep+1;
+            strncpy(listen_addr_buf, optarg, sizeof(listen_addr_buf)-1);
             break;
         case 'b' :
-            if (NULL == (sep = strrchr(optarg, ':'))) {
-                usage(argv[0]);
-            }
-            *sep = '\0';
-            option.backend.host = optarg;
-            option.backend.port = sep+1;
+            strncpy(backends_addr_buf, optarg, sizeof(backends_addr_buf)-1);
             break;
         case 'k' :
             strncpy(psk_buf, optarg, sizeof(psk_buf)-1);
@@ -78,7 +69,10 @@ int main(int argc, char **argv)
         }
     }
 
-    if (0!=proxy_init(&context, &option, psk_buf)) {
+    if (0!=proxy_init(&context,
+                      listen_addr_buf,
+                      backends_addr_buf,
+                      psk_buf)) {
         ERR("proxy init failed");
         proxy_deinit(&context);
         usage(argv[0]);

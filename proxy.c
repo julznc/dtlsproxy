@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "proxy.h"
@@ -126,22 +127,18 @@ static dtls_handler_t cb = {
 
 // returns non-zero on error
 int proxy_init(proxy_context_t *ctx,
-               const proxy_option_t *opt,
+               char *listen_addr_buf,
+               char *backends_addr_buf,
                char *psk_buf)
 {
-    assert (ctx && opt && psk_buf);
-
-    ctx->option = opt;
-
-    if ((NULL==opt->listen.host) || (NULL==opt->listen.port) ||
-        (NULL==opt->backend.host) || (NULL==opt->backend.port)) {
-        return -1;
-    }
+    assert (ctx && listen_addr_buf && backends_addr_buf && psk_buf);
 
     ctx->psk = new_keystore(psk_buf);
     if (NULL==ctx->psk) {
         return -1;
     }
+
+    char *sep = NULL;
 
     session_t *listen_addr = (session_t *)malloc(sizeof(session_t));
     if (NULL==listen_addr) {
@@ -149,8 +146,13 @@ int proxy_init(proxy_context_t *ctx,
         return -1;
     }
     memset(listen_addr, 0, sizeof(session_t));
-    if (resolve_address(ctx->option->listen.host,
-                        ctx->option->listen.port,
+
+    if (NULL == (sep = strrchr(listen_addr_buf, ':'))) {
+        return -1;
+    }
+    *sep = '\0';
+
+    if (resolve_address(listen_addr_buf, sep+1,
                         listen_addr) < 0) {
         ERR("cannot resolve listen address");
         return -1;
@@ -163,8 +165,13 @@ int proxy_init(proxy_context_t *ctx,
         return -1;
     }
     memset(backend_addr, 0, sizeof(session_t));
-    if (resolve_address(ctx->option->backend.host,
-                        ctx->option->backend.port,
+
+    if (NULL == (sep = strrchr(backends_addr_buf, ':'))) {
+        return -1;
+    }
+    *sep = '\0';
+
+    if (resolve_address(backends_addr_buf, sep+1,
                         backend_addr) < 0) {
         ERR("cannot resolve backend address");
         return -1;
