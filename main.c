@@ -15,10 +15,10 @@ static void usage(const char *program)
         program = ++p;
 
     printf("\nDTLS reverse proxy server (c) 2017 yus\n\n"
-        "usage: %s -l <host:port> -b <host:port> -k <psk>\n"
-        "\t-l listen\tlisten on specified host and port\n"
-        "\t-b backends\tbackend server hosts and ports\n"
-        "\t-k keys\t\tpsk identities (id1:key1,id2:key2,...,idN:keyN)\n", program);
+        "usage: %s -l <host:port> -b <hosts:ports> -k <key maps>\n"
+        "\t-l listen    listen on specified host and port\n"
+        "\t-b backends  backend servers (host1:port1,host2:port2,...)\n"
+        "\t-k keys      psk identities (id1:key1,id2:key2,...)\n", program);
     exit(1);
 }
 
