@@ -95,88 +95,75 @@ session_context_t *find_session(struct proxy_context *ctx,
     return session;
 }
 
-#define DTLS_RH_LENGTH sizeof(dtls_record_header_t)
-#define DTLS_RECORD_HEADER(M) ((dtls_record_header_t *)(M))
 
+static inline uint8 *set_record_header(uint8 type, dtls_security_parameters_t *security, uint8 *buf)
+{
+    dtls_int_to_uint8(buf, type);
+    buf += sizeof(uint8);
 
-static inline uint8 *
-dtls_set_record_header(uint8 type, dtls_security_parameters_t *security,
-               uint8 *buf) {
-
-  dtls_int_to_uint8(buf, type);
-  buf += sizeof(uint8);
-
-  dtls_int_to_uint16(buf, DTLS_VERSION);
-  buf += sizeof(uint16);
-
-  if (security) {
-    dtls_int_to_uint16(buf, security->epoch);
+    dtls_int_to_uint16(buf, DTLS_VERSION);
     buf += sizeof(uint16);
 
-    dtls_int_to_uint48(buf, security->rseq);
-    buf += sizeof(uint48);
+    if (security) {
+        dtls_int_to_uint16(buf, security->epoch);
+        buf += sizeof(uint16);
 
-    /* increment record sequence counter by 1 */
-    security->rseq++;
-  } else {
-    memset(buf, 0, sizeof(uint16) + sizeof(uint48));
-    buf += sizeof(uint16) + sizeof(uint48);
-  }
+        dtls_int_to_uint48(buf, security->rseq);
+        buf += sizeof(uint48);
 
-  memset(buf, 0, sizeof(uint16));
-  return buf + sizeof(uint16);
+        /* increment record sequence counter by 1 */
+        security->rseq++;
+    } else {
+        memset(buf, 0, sizeof(uint16) + sizeof(uint48));
+        buf += sizeof(uint16) + sizeof(uint48);
+    }
+
+    memset(buf, 0, sizeof(uint16));
+    return buf + sizeof(uint16);
 }
 
-static int prepare_data_record(dtls_peer_t *peer, uint8 *data_array[], size_t data_len_array[],
-                               size_t data_array_len, uint8 *sendbuf, size_t *rlen)
+static int prepare_data_record(dtls_peer_t *peer, uint8 *data, size_t data_len,
+                               uint8 *sendbuf, size_t *rlen)
 {
-  uint8 *p, *start;
-  int res;
-  unsigned int i;
+    dtls_security_parameters_t *security = dtls_security_params(peer);
 
-  dtls_security_parameters_t *security = dtls_security_params(peer);
-  unsigned char type = DTLS_CT_APPLICATION_DATA;
+  #define DTLS_RH_LENGTH sizeof(dtls_record_header_t)
+  #define DTLS_RECORD_HEADER(M) ((dtls_record_header_t *)(M))
 
-  if (*rlen < DTLS_RH_LENGTH) {
-    ERR("The sendbuf (%zu bytes) is too small\n", *rlen);
-    return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
-  }
+    if (*rlen < DTLS_RH_LENGTH) {
+        ERR("The sendbuf (%zu bytes) is too small", *rlen);
+        return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
+    }
 
-  p = dtls_set_record_header(type, security, sendbuf);
-  start = p;
+    uint8 *p = set_record_header(DTLS_CT_APPLICATION_DATA, security, sendbuf);
+    uint8 *start = p;
 
-  if (!security || security->cipher == TLS_NULL_WITH_NULL_NULL) {
-    /* no cipher suite */
-    return -1;
-  }
-  /* TLS_PSK_WITH_AES_128_CCM_8 or TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 */
-    /**
-     * length of additional_data for the AEAD cipher which consists of
-     * seq_num(2+6) + type(1) + version(2) + length(2)
-     */
-#define A_DATA_LEN 13
+    if (!security || security->cipher == TLS_NULL_WITH_NULL_NULL) {
+        /* no cipher suite */
+        return -1;
+    }
+
+    /* TLS_PSK_WITH_AES_128_CCM_8 or TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 */
+  #define A_DATA_LEN 13
     unsigned char nonce[DTLS_CCM_BLOCKSIZE];
     unsigned char A_DATA[A_DATA_LEN];
 
     memcpy(p, &DTLS_RECORD_HEADER(sendbuf)->epoch, 8);
     p += 8;
-    res = 8;
+    int res = 8;
 
-    for (i = 0; i < data_array_len; i++) {
-      /* check the minimum that we need for packets that are not encrypted */
-      if (*rlen < res + DTLS_RH_LENGTH + data_len_array[i]) {
-        ERR("prepare_data_record: send buffer too small\n");
+    /* check the minimum that we need for packets that are not encrypted */
+    if (*rlen < res + DTLS_RH_LENGTH + data_len) {
+        ERR("prepare_data_record: send buffer too small");
         return dtls_alert_fatal_create(DTLS_ALERT_INTERNAL_ERROR);
-      }
-
-      memcpy(p, data_array[i], data_len_array[i]);
-      p += data_len_array[i];
-      res += data_len_array[i];
     }
 
+    memcpy(p, data, data_len);
+    p += data_len;
+    res += data_len;
+
     memset(nonce, 0, DTLS_CCM_BLOCKSIZE);
-    memcpy(nonce, dtls_kb_local_iv(security, peer->role),
-       dtls_kb_iv_size(security, peer->role));
+    memcpy(nonce, dtls_kb_local_iv(security, peer->role), dtls_kb_iv_size(security, peer->role));
     memcpy(nonce + dtls_kb_iv_size(security, peer->role), start, 8); /* epoch + seq_num */
 
 
@@ -185,32 +172,45 @@ static int prepare_data_record(dtls_peer_t *peer, uint8 *data_array[], size_t da
     dtls_int_to_uint16(A_DATA + 11, res - 8); /* length */
 
     res = dtls_encrypt(start + 8, res - 8, start + 8, nonce,
-               dtls_kb_local_write_key(security, peer->role),
-               dtls_kb_key_size(security, peer->role),
-               A_DATA, A_DATA_LEN);
+                       dtls_kb_local_write_key(security, peer->role),
+                       dtls_kb_key_size(security, peer->role),
+                       A_DATA, A_DATA_LEN);
 
-    if (res < 0)
-      return res;
+    if (res < 0) {
+        ERR("dtls_encrypt()=%d failed", res);
+        return res;
+    }
 
-    res += 8;			/* increment res by size of nonce_explicit */
+    res += 8;   /* increment res by size of nonce_explicit */
 
 
-  /* fix length of fragment in sendbuf */
-  dtls_int_to_uint16(sendbuf + 11, res);
+    /* fix length of fragment in sendbuf */
+    dtls_int_to_uint16(sendbuf + 11, res);
 
-  *rlen = DTLS_RH_LENGTH + res;
-  return 0;
+    *rlen = DTLS_RH_LENGTH + res;
+    return 0;
 }
 
-int send_client_data(dtls_context_t *dtls_ctx, dtls_peer_t *peer,
-                     uint8 *buf_array[], size_t buf_len_array[])
+static int relay_to_client(struct dtls_context_t *dtls_ctx,
+                           session_t *addr, uint8 *buf, size_t buf_len)
 {
+    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, addr);
     unsigned char sendbuf[DTLS_MAX_BUF];
     size_t len = sizeof(sendbuf);
+    int res = 0;
 
-    session_t *addr = &peer->session;
+    if (!peer) {
+        res = dtls_connect(dtls_ctx, addr);
+        return (res >= 0) ? 0 : res;
+    }
 
-    int res = prepare_data_record(peer, buf_array, buf_len_array, 1, sendbuf, &len);
+    if (peer->state != DTLS_STATE_CONNECTED) {
+        return 0;
+    }
+
+
+
+    res = prepare_data_record(peer, buf, buf_len, sendbuf, &len);
 
     if (res < 0) {
         ERR("prepare_data_record()=%d failed", res);
@@ -227,23 +227,6 @@ int send_client_data(dtls_context_t *dtls_ctx, dtls_peer_t *peer,
     //DBG("%s res = %d", __func__, res);
 
     return 0;
-}
-
-static int relay_to_client(struct dtls_context_t *dtls_ctx,
-                           session_t *addr, uint8 *buf, size_t len)
-{
-    dtls_peer_t *peer = dtls_get_peer(dtls_ctx, addr);
-
-    if (!peer) {
-        int res = dtls_connect(dtls_ctx, addr);
-        return (res >= 0) ? 0 : res;
-    }
-
-    if (peer->state != DTLS_STATE_CONNECTED) {
-        return 0;
-    }
-
-    return send_client_data(dtls_ctx, peer, &buf, &len);
 }
 
 static void session_cb(EV_P_ ev_io *w, int revents)
