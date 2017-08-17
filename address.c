@@ -8,9 +8,46 @@
 #include "address.h"
 #include "utils.h"
 
+
+void print_address(session_t *addr, char *buf, size_t buf_len)
+{
+    const void *addrptr = NULL;
+    in_port_t port;
+
+    char *p = buf;
+    switch (addr->addr.sa.sa_family)
+    {
+    case AF_INET:
+        addrptr = &addr->addr.sin.sin_addr;
+        port = ntohs(addr->addr.sin.sin_port);
+        break;
+    case AF_INET6:
+        *p++ = '[';
+        addrptr = &addr->addr.sin6.sin6_addr;
+        port = ntohs(addr->addr.sin6.sin6_port);
+        break;
+    default:
+        ERR("unknown address family");
+        return;
+    }
+
+    if (inet_ntop(addr->addr.sa.sa_family, addrptr, p, buf_len) == 0) {
+        ERR("inet_ntop() failed");
+        return;
+    }
+
+    p += strnlen(p, sizeof(buf)-1);
+    if (addr->addr.sa.sa_family == AF_INET6) {
+        *p++ = ']';
+    }
+
+    snprintf((char *)p, buf + buf_len - p + 1, ":%d", port);
+    //DBG("%s", buf);
+}
+
 int resolve_address(const char *host, const char *port, session_t *addr)
 {
-    DBG("%s(%s:%s)", __func__, host, port);
+    //DBG("%s(%s:%s)", __func__, host, port);
 
     struct addrinfo *res, *ainfo;
     struct addrinfo hints;

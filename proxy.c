@@ -125,18 +125,13 @@ static dtls_handler_t cb = {
 #endif
 };
 
-// returns non-zero on error
-int proxy_init(proxy_context_t *ctx,
-               char *listen_addr_buf,
-               char *backends_addr_buf,
-               char *psk_buf)
+static int init_addresses(proxy_context_t *ctx,
+                          char *listen_addr_buf,
+                          char *backends_addr_buf)
 {
-    assert (ctx && listen_addr_buf && backends_addr_buf && psk_buf);
+    assert (ctx && listen_addr_buf && backends_addr_buf);
 
-    ctx->psk = new_keystore(psk_buf);
-    if (NULL==ctx->psk) {
-        return -1;
-    }
+    char addrbuf[125];
 
     char *sep = NULL;
 
@@ -152,12 +147,14 @@ int proxy_init(proxy_context_t *ctx,
     }
     *sep = '\0';
 
-    if (resolve_address(listen_addr_buf, sep+1,
-                        listen_addr) < 0) {
+    if (0!=resolve_address(listen_addr_buf, sep+1, listen_addr)) {
         ERR("cannot resolve listen address");
         return -1;
     }
     ctx->listen.addr = listen_addr;
+    memset(addrbuf, 0, sizeof(addrbuf));
+    print_address(ctx->listen.addr, addrbuf, sizeof(addrbuf)-1);
+    DBG("listen: %s", addrbuf);
 
     session_t *backend_addr = (session_t *)malloc(sizeof(session_t));
     if (NULL==backend_addr) {
@@ -171,13 +168,36 @@ int proxy_init(proxy_context_t *ctx,
     }
     *sep = '\0';
 
-    if (resolve_address(backends_addr_buf, sep+1,
-                        backend_addr) < 0) {
+    if (0!=resolve_address(backends_addr_buf, sep+1, backend_addr)) {
         ERR("cannot resolve backend address");
         return -1;
     }
     ctx->backends.addr = backend_addr;
     ctx->backends.count = 1; // todo
+
+    memset(addrbuf, 0, sizeof(addrbuf));
+    print_address(ctx->backends.addr, addrbuf, sizeof(addrbuf)-1);
+    DBG("backend: %s", addrbuf);
+
+    return 0;
+}
+
+// returns non-zero on error
+int proxy_init(proxy_context_t *ctx,
+               char *listen_addr_buf,
+               char *backends_addr_buf,
+               char *psk_buf)
+{
+    assert (ctx && psk_buf);
+
+    if (0!=init_addresses(ctx, listen_addr_buf, backends_addr_buf)) {
+        return -1;
+    }
+
+    ctx->psk = new_keystore(psk_buf);
+    if (NULL==ctx->psk) {
+        return -1;
+    }
 
     /* init socket and set it to non-blocking */
     ctx->listen.fd = create_socket(ctx->listen.addr);

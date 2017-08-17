@@ -14,7 +14,7 @@ static void usage(const char *program)
     if ( p )
         program = ++p;
 
-    printf("DTLS reverse proxy server (c) 2017 yus\n\n"
+    printf("\nDTLS reverse proxy server (c) 2017 yus\n\n"
         "usage: %s -l <host:port> -b <host:port> -k <psk>\n"
         "\t-l listen\tlisten on specified host and port\n"
         "\t-b backends\tbackend server hosts and ports\n"
