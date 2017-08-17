@@ -36,7 +36,7 @@ void print_address(session_t *addr, char *buf, size_t buf_len)
         return;
     }
 
-    p += strnlen(p, sizeof(buf)-1);
+    p += strnlen(p, buf_len);
     if (addr->addr.sa.sa_family == AF_INET6) {
         *p++ = ']';
     }
