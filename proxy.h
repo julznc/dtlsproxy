@@ -3,9 +3,8 @@
 
 #include "address.h"
 #include "backend.h"
+#include "client.h"
 #include "keystore.h"
-#include "session.h"
-
 
 typedef struct proxy_context {
     dtls_context_t *dtls;
@@ -19,7 +18,7 @@ typedef struct proxy_context {
         uint8_t count;
         uint8_t current;
     } backends;
-    session_context_t *sessions;
+    client_context_t *clients;
     struct ev_loop *loop;
     ev_io watcher;
 } proxy_context_t;

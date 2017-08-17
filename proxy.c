@@ -59,10 +59,10 @@ static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
 #if 0 // echo
     return dtls_write(dtls_ctx, session, data, len);
 #else
-    session_context_t *sc = find_session(ctx, dtls_session);
-    if (NULL!=sc) {
-        //DBG("forward to backend=%d", sc->backend_fd);
-        return send(sc->backend_fd, data, len, 0);
+    client_context_t *client = find_client(ctx, dtls_session);
+    if (NULL!=client) {
+        //DBG("forward to backend=%d", client->backend_fd);
+        return send(client->backend_fd, data, len, 0);
     }
     return -1;
 #endif
@@ -73,7 +73,7 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
 {
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
     dtls_peer_t *peer = dtls_get_peer(dtls_ctx, dtls_session);
-    session_context_t *sc = NULL;
+    client_context_t *client = NULL;
 
     DBG("%s: peer=%lx", __func__, (unsigned long)peer);
 
@@ -81,24 +81,24 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
     {
     case DTLS_ALERT_CLOSE_NOTIFY:
         DBG("%s: close notify", __func__);
-        sc = find_session(ctx, dtls_session);
-        if (NULL!=sc) {
-            stop_session(ctx, sc);
-            DBG("delete session %lx", (unsigned long)sc);
-            free_session(ctx, sc);
+        client = find_client(ctx, dtls_session);
+        if (NULL!=client) {
+            stop_client(ctx, client);
+            DBG("delete client %lx", (unsigned long)client);
+            free_client(ctx, client);
         }
         break;
     case DTLS_EVENT_CONNECT:
         DBG("%s: connect", __func__);
         break;
     case DTLS_EVENT_CONNECTED:
-        sc = new_session(ctx, peer);
-        if (NULL==sc) {
+        client = new_client(ctx, peer);
+        if (NULL==client) {
             return -1;
         }
-        DBG("%s: connected session %lx", __func__, (unsigned long)sc);
-        if (0 != start_session(ctx, sc)) {
-            free_session(ctx, sc);
+        DBG("%s: connected client %lx", __func__, (unsigned long)client);
+        if (0 != start_client(ctx, client)) {
+            free_client(ctx, client);
             return -1;
         }
         return 0;
@@ -258,10 +258,10 @@ void proxy_exit(proxy_context_t *ctx)
 
     struct ev_loop *loop = ctx->loop;
 
-    session_context_t *sc = ctx->sessions;
-    while(sc) {
-        stop_session(ctx, sc);
-        sc = sc->next;
+    client_context_t *client = ctx->clients;
+    while(client) {
+        stop_client(ctx, client);
+        client = client->next;
     }
     ev_io_stop(EV_A_ &ctx->watcher);
 
@@ -283,9 +283,9 @@ void proxy_deinit(proxy_context_t *ctx)
         free_backend(ctx, ctx->backends.addr);
     }
 
-    while(ctx->sessions) {
-        DBG("delete session %lx", (unsigned long)ctx->sessions);
-        free_session(ctx, ctx->sessions);
+    while(ctx->clients) {
+        DBG("delete client %lx", (unsigned long)ctx->clients);
+        free_client(ctx, ctx->clients);
     }
 
     dtls_free_context(ctx->dtls);

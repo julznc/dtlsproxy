@@ -3,104 +3,105 @@
 #include <unistd.h>
 #include <utlist.h>
 
-#include "session.h"
+#include "client.h"
 #include "proxy.h"
 #include "utils.h"
 
-session_context_t *new_session(struct proxy_context *ctx,
-                               const dtls_peer_t *peer)
+client_context_t *new_client(struct proxy_context *ctx,
+                             const dtls_peer_t *peer)
 {
     assert(ctx && peer && ctx->dtls);
-    session_context_t *session = (session_context_t *)malloc(sizeof(session_context_t));
-    if (NULL==session) {
-        ERR("failed to allocate session_context");
+    client_context_t *client = (client_context_t *)malloc(sizeof(client_context_t));
+    if (NULL==client) {
+        ERR("failed to allocate client_context");
         return NULL;
     }
 
-    memset(session, 0, sizeof(session_context_t));
-    memcpy(&session->peer, peer, sizeof(dtls_peer_t));
-    session->dtls = ctx->dtls;
+    memset(client, 0, sizeof(client_context_t));
+    memcpy(&client->peer, peer, sizeof(dtls_peer_t));
+    client->dtls = ctx->dtls;
 
     backend_context_t *backend = next_backend(ctx);
     if (NULL==backend) {
         ERR("no available backend");
-        free(session);
+        free(client);
         return NULL;
     }
 
-    session->client_fd = create_socket(&peer->session);
-    if (session->client_fd <=0) {
+    client->client_fd = create_socket(&peer->session);
+    if (client->client_fd <=0) {
         ERR("unable to create socket to client");
-        free(session);
+        free(client);
         return NULL;
     }
 
-    if (0!=bind(session->client_fd,
+    if (0!=bind(client->client_fd,
                    &ctx->listen.addr.addr.sa,
                    ctx->listen.addr.size)) {
         ERR("bind client failed");
-        close(session->client_fd);
+        close(client->client_fd);
         return NULL;
     }
 
-    if (0!=connect(session->client_fd,
+    if (0!=connect(client->client_fd,
                    &peer->session.addr.sa,
                    peer->session.size)) {
         ERR("connect to client failed");
-        close(session->client_fd);
+        close(client->client_fd);
         return NULL;
     }
 
-    session->backend_fd = create_socket(&backend->address);
-    if (session->backend_fd <=0) {
+    client->backend_fd = create_socket(&backend->address);
+    if (client->backend_fd <=0) {
         ERR("unable to create socket to backend");
-        close(session->client_fd);
-        free(session);
+        close(client->client_fd);
+        free(client);
         return NULL;
     }
 
-    if (0!=connect(session->backend_fd,
+    if (0!=connect(client->backend_fd,
                    &backend->address.addr.sa,
                    backend->address.size)) {
         ERR("connect to backend failed");
-        close(session->client_fd);
-        close(session->backend_fd);
+        close(client->client_fd);
+        close(client->backend_fd);
+        free(client);
         return NULL;
     }
 
     DBG("linked to backend %u", backend->address.ifindex);
-    LL_PREPEND(ctx->sessions, session);
-    return session;
+    LL_PREPEND(ctx->clients, client);
+    return client;
 }
 
-void free_session(struct proxy_context *ctx,
-                  session_context_t *session)
+void free_client(struct proxy_context *ctx,
+                 client_context_t *client)
 {
-    if (ctx && session) {
-        LL_DELETE(ctx->sessions, session);
-        if (session->client_fd > 0) {
-            close(session->client_fd);
+    if (ctx && client) {
+        LL_DELETE(ctx->clients, client);
+        if (client->client_fd > 0) {
+            close(client->client_fd);
         }
-        if (session->backend_fd > 0) {
-            close(session->backend_fd);
+        if (client->backend_fd > 0) {
+            close(client->backend_fd);
         }
-        free(session);
+        free(client);
     }
 }
 
-session_context_t *find_session(struct proxy_context *ctx,
-                                const session_t *addr)
+client_context_t *find_client(struct proxy_context *ctx,
+                              const session_t *addr)
 {
     assert(ctx && addr);
-    session_context_t *session = NULL;
+    client_context_t *client = NULL;
 
-    LL_FOREACH(ctx->sessions, session) {
-        if (dtls_session_equals(addr, &session->peer.session)) {
-            return session;
+    LL_FOREACH(ctx->clients, client) {
+        if (dtls_session_equals(addr, &client->peer.session)) {
+            return client;
         }
     }
 
-    return session;
+    return client;
 }
 
 /* copied form tinydtls' dtls_set_record_header() */
@@ -197,12 +198,12 @@ static int prepare_data_record(dtls_peer_t *peer, uint8 *data, size_t data_len,
     return 0;
 }
 
-static int relay_to_client(session_context_t *session, uint8 *buf, size_t buf_len)
+static int relay_to_client(client_context_t *client, uint8 *buf, size_t buf_len)
 {
-    dtls_peer_t *peer = dtls_get_peer(session->dtls, &session->peer.session);
+    dtls_peer_t *peer = dtls_get_peer(client->dtls, &client->peer.session);
 
     if (!peer) {
-        return dtls_connect(session->dtls, &session->peer.session);
+        return dtls_connect(client->dtls, &client->peer.session);
     }
 
     if (peer->state != DTLS_STATE_CONNECTED) {
@@ -224,8 +225,8 @@ static int relay_to_client(session_context_t *session, uint8 *buf, size_t buf_le
     //DBG("encrypted (len=%zu):", len);
     //dumpbytes(sendbuf, len);
 
-    return sendto(session->client_fd, sendbuf, len, MSG_DONTWAIT,
-                  &session->peer.session.addr.sa, session->peer.session.size);
+    return sendto(client->client_fd, sendbuf, len, MSG_DONTWAIT,
+                  &client->peer.session.addr.sa, client->peer.session.size);
 }
 
 static void session_cb(EV_P_ ev_io *w, int revents)
@@ -235,7 +236,7 @@ static void session_cb(EV_P_ ev_io *w, int revents)
     unsigned char packet[DTLS_MAX_BUF];
     size_t packet_len = 0;
 
-    session_context_t *sc = (session_context_t *)w->data;
+    client_context_t *sc = (client_context_t *)w->data;
     if (w->fd == sc->backend_fd) {
         if (revents & EV_READ) {
             //DBG("receive from backend");
@@ -250,9 +251,9 @@ static void session_cb(EV_P_ ev_io *w, int revents)
     }
 }
 
-static void listen_session_io(EV_P_ ev_io *w,
+static void listen_client_io(EV_P_ ev_io *w,
                               proxy_context_t *ctx,
-                              session_context_t *sc)
+                              client_context_t *sc)
 {
     DBG("%s fd=%d", __func__, sc->backend_fd);
     loop = ctx->loop;
@@ -261,25 +262,25 @@ static void listen_session_io(EV_P_ ev_io *w,
     ev_io_start(EV_A_ w);
 }
 
-int start_session(struct proxy_context *ctx,
-                  session_context_t *session)
+int start_client(struct proxy_context *ctx,
+                 client_context_t *client)
 {
-    assert(ctx && session);
+    assert(ctx && client);
     DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
-    listen_session_io(EV_A_ &session->backend_rd_watcher, ctx, session);
+    listen_client_io(EV_A_ &client->backend_rd_watcher, ctx, client);
 
     return 0;
 }
 
-void stop_session(struct proxy_context *ctx,
-                  session_context_t *session)
+void stop_client(struct proxy_context *ctx,
+                 client_context_t *client)
 {
-    assert(ctx && session);
+    assert(ctx && client);
     DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
-    ev_io_stop(EV_A_ &session->backend_rd_watcher);
+    ev_io_stop(EV_A_ &client->backend_rd_watcher);
 }
 
