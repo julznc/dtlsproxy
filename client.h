@@ -11,6 +11,7 @@ typedef struct client_context {
     struct client_context *next;
     dtls_context_t *dtls;
     dtls_peer_t peer;
+    uint32_t index;
     int client_fd;
     int backend_fd;
     ev_io backend_rd_watcher;

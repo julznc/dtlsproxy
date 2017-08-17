@@ -69,8 +69,13 @@ client_context_t *new_client(struct proxy_context *ctx,
         return NULL;
     }
 
-    DBG("linked to backend %u", backend->address.ifindex);
-    LL_PREPEND(ctx->clients, client);
+    client->index = ctx->clients.index++;
+    DBG("client %u linked to backend %u",
+        client->index,
+        backend->address.ifindex);
+
+    LL_PREPEND(ctx->clients.client, client);
+    ctx->clients.count++;
     return client;
 }
 
@@ -78,13 +83,14 @@ void free_client(struct proxy_context *ctx,
                  client_context_t *client)
 {
     if (ctx && client) {
-        LL_DELETE(ctx->clients, client);
+        LL_DELETE(ctx->clients.client, client);
         if (client->client_fd > 0) {
             close(client->client_fd);
         }
         if (client->backend_fd > 0) {
             close(client->backend_fd);
         }
+        ctx->clients.count--;
         free(client);
     }
 }
@@ -95,7 +101,7 @@ client_context_t *find_client(struct proxy_context *ctx,
     assert(ctx && addr);
     client_context_t *client = NULL;
 
-    LL_FOREACH(ctx->clients, client) {
+    LL_FOREACH(ctx->clients.client, client) {
         if (dtls_session_equals(addr, &client->peer.session)) {
             return client;
         }
@@ -266,7 +272,7 @@ int start_client(struct proxy_context *ctx,
                  client_context_t *client)
 {
     assert(ctx && client);
-    DBG("%s", __func__);
+    //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
     listen_client_io(EV_A_ &client->backend_rd_watcher, ctx, client);
@@ -278,7 +284,7 @@ void stop_client(struct proxy_context *ctx,
                  client_context_t *client)
 {
     assert(ctx && client);
-    DBG("%s", __func__);
+    //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
     ev_io_stop(EV_A_ &client->backend_rd_watcher);

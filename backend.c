@@ -41,7 +41,7 @@ backend_context_t *new_backend(struct proxy_context *ctx,
     print_address(&backend->address, addrbuf, sizeof(addrbuf)-1);
     DBG("backend %u: %s", backend->address.ifindex, addrbuf);
 
-    LL_PREPEND(ctx->backends.addr, backend);
+    LL_PREPEND(ctx->backends.server, backend);
     return backend;
 }
 
@@ -49,7 +49,7 @@ void free_backend(struct proxy_context *ctx,
                   backend_context_t *backend)
 {
     if (ctx && backend) {
-        LL_DELETE(ctx->backends.addr, backend);
+        LL_DELETE(ctx->backends.server, backend);
         ctx->backends.count--;
         free(backend);
     }
@@ -59,7 +59,7 @@ backend_context_t *next_backend(struct proxy_context *ctx)
 {
     backend_context_t *backend = NULL;
 
-    LL_FOREACH(ctx->backends.addr, backend)  {
+    LL_FOREACH(ctx->backends.server, backend)  {
         if (ctx->backends.current == backend->address.ifindex) {
             // next index
             if (++ctx->backends.current >= ctx->backends.count ) {

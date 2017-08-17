@@ -75,16 +75,16 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
     dtls_peer_t *peer = dtls_get_peer(dtls_ctx, dtls_session);
     client_context_t *client = NULL;
 
-    DBG("%s: peer=%lx", __func__, (unsigned long)peer);
+    //DBG("%s: peer=%lx", __func__, (unsigned long)peer);
 
     switch (code)
     {
     case DTLS_ALERT_CLOSE_NOTIFY:
-        DBG("%s: close notify", __func__);
+        //DBG("%s: close notify", __func__);
         client = find_client(ctx, dtls_session);
         if (NULL!=client) {
             stop_client(ctx, client);
-            DBG("delete client %lx", (unsigned long)client);
+            DBG("delete client %u", client->index);
             free_client(ctx, client);
         }
         break;
@@ -96,7 +96,7 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
         if (NULL==client) {
             return -1;
         }
-        DBG("%s: connected client %lx", __func__, (unsigned long)client);
+        //DBG("%s: connected client %lx", __func__, (unsigned long)client);
         if (0 != start_client(ctx, client)) {
             free_client(ctx, client);
             return -1;
@@ -258,7 +258,7 @@ void proxy_exit(proxy_context_t *ctx)
 
     struct ev_loop *loop = ctx->loop;
 
-    client_context_t *client = ctx->clients;
+    client_context_t *client = ctx->clients.client;
     while(client) {
         stop_client(ctx, client);
         client = client->next;
@@ -278,14 +278,14 @@ void proxy_deinit(proxy_context_t *ctx)
         ctx->listen.fd = -1;
     }
 
-    while(ctx->backends.addr) {
-        DBG("delete backend %u", ctx->backends.addr->address.ifindex);
-        free_backend(ctx, ctx->backends.addr);
+    while(ctx->backends.server) {
+        DBG("delete backend %u", ctx->backends.server->address.ifindex);
+        free_backend(ctx, ctx->backends.server);
     }
 
-    while(ctx->clients) {
-        DBG("delete client %lx", (unsigned long)ctx->clients);
-        free_client(ctx, ctx->clients);
+    while(ctx->clients.client) {
+        DBG("delete client %u", ctx->clients.client->index);
+        free_client(ctx, ctx->clients.client);
     }
 
     dtls_free_context(ctx->dtls);
