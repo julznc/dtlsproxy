@@ -35,6 +35,8 @@ int proxy_init(proxy_context_t *ctx,
 
 int proxy_run(proxy_context_t *ctx);
 
+void proxy_cb(EV_P_ ev_io *w, int revents);
+
 void proxy_exit(proxy_context_t *ctx);
 
 void proxy_deinit(proxy_context_t *ctx);

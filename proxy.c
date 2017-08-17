@@ -204,7 +204,7 @@ int proxy_init(proxy_context_t *ctx,
     return 0;
 }
 
-static void proxy_cb(EV_P_ ev_io *w, int revents)
+void proxy_cb(EV_P_ ev_io *w, int revents)
 {
     //DBG("%s revents=%04X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;

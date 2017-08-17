@@ -14,6 +14,7 @@ typedef struct client_context {
     uint32_t index;
     int client_fd;
     int backend_fd;
+    ev_io client_rd_watcher;
     ev_io backend_rd_watcher;
 } client_context_t;
 

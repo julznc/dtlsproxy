@@ -257,7 +257,18 @@ static void session_cb(EV_P_ ev_io *w, int revents)
     }
 }
 
-static void listen_client_io(EV_P_ ev_io *w,
+void listen_client_io(EV_P_ ev_io *w,
+                              proxy_context_t *ctx,
+                              client_context_t *sc)
+{
+    DBG("%s fd=%d", __func__, sc->client_fd);
+    loop = ctx->loop;
+    ev_io_init(w, proxy_cb, sc->client_fd, EV_READ);
+    w->data = ctx;
+    ev_io_start(EV_A_ w);
+}
+
+static void listen_backend_io(EV_P_ ev_io *w,
                               proxy_context_t *ctx,
                               client_context_t *sc)
 {
@@ -275,7 +286,8 @@ int start_client(struct proxy_context *ctx,
     //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
-    listen_client_io(EV_A_ &client->backend_rd_watcher, ctx, client);
+    listen_client_io(EV_A_ &client->client_rd_watcher, ctx, client);
+    listen_backend_io(EV_A_ &client->backend_rd_watcher, ctx, client);
 
     return 0;
 }
@@ -287,6 +299,7 @@ void stop_client(struct proxy_context *ctx,
     //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
+    ev_io_stop(EV_A_ &client->client_rd_watcher);
     ev_io_stop(EV_A_ &client->backend_rd_watcher);
 }
 
