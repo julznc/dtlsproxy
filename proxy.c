@@ -56,7 +56,7 @@ static int dtls_read_from_peer(struct dtls_context_t *dtls_ctx,
     //DBG("%s: peer=%lx", __func__, (unsigned long)peer);
     //dumpbytes(data, len);
 
-#if 0 // echo
+#if 0 // echo only
     return dtls_write(dtls_ctx, session, data, len);
 #else
     client_context_t *client = find_client(ctx, dtls_session);
@@ -204,7 +204,7 @@ int proxy_init(proxy_context_t *ctx,
     return 0;
 }
 
-void proxy_cb(EV_P_ ev_io *w, int revents)
+static void proxy_cb(EV_P_ ev_io *w, int revents)
 {
     //DBG("%s revents=%04X", __func__, revents);
     proxy_context_t *ctx = (proxy_context_t *)w->data;
@@ -219,7 +219,7 @@ void proxy_cb(EV_P_ ev_io *w, int revents)
                    &session.addr.sa, &session.size);
 
     if (len < 0) {
-        perror("recvfrom");
+        perror("proxy recvfrom");
         return;
     } else {
         //DBG("got %d bytes from port %u", len, ntohs(session.addr.sin6.sin6_port));
@@ -229,12 +229,11 @@ void proxy_cb(EV_P_ ev_io *w, int revents)
     }
 
     dtls_handle_message(ctx->dtls, &session, buf, len);
-
 }
 
-static void listen_io(EV_P_ ev_io *w, proxy_context_t *ctx)
+static void start_watcher(EV_P_ ev_io *w, proxy_context_t *ctx)
 {
-    DBG("%s fd=%d", __func__, ctx->listen.fd);
+    DBG("proxy fd=%d", ctx->listen.fd);
     loop = ctx->loop;
     ev_io_init(w, proxy_cb, ctx->listen.fd, EV_READ);
     w->data = ctx;
@@ -247,7 +246,7 @@ int proxy_run(proxy_context_t *ctx)
 
     struct ev_loop *loop = ev_default_loop(0);
     ctx->loop = loop;
-    listen_io(EV_A_ &ctx->watcher, ctx);
+    start_watcher(EV_A_ &ctx->watcher, ctx);
 
     return ev_run(EV_A_ 0);
 }

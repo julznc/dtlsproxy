@@ -235,7 +235,34 @@ static int relay_to_client(client_context_t *client, uint8 *buf, size_t buf_len)
                   &client->peer.session.addr.sa, client->peer.session.size);
 }
 
-static void session_cb(EV_P_ ev_io *w, int revents)
+static void client_cb(EV_P_ ev_io *w, int revents)
+{
+    //DBG("%s revents=%04X", __func__, revents);
+    client_context_t *client = (client_context_t *)w->data;
+
+    session_t session;
+    static uint8 buf[DTLS_MAX_BUF];
+    int len;
+
+    memset(&session, 0, sizeof(session_t));
+    session.size = sizeof(session.addr);
+    len = recvfrom(client->client_fd, buf, sizeof(buf), MSG_TRUNC,
+                   &session.addr.sa, &session.size);
+
+    if (len < 0) {
+        perror("client recvfrom");
+        return;
+    } else {
+        //DBG("got %d bytes from port %u", len, ntohs(session.addr.sin6.sin6_port));
+        if (sizeof(buf) < len) {
+            ERR("packet was truncated (%lu bytes lost)", len - sizeof(buf));
+        }
+    }
+
+    dtls_handle_message(client->dtls, &session, buf, len);
+}
+
+static void backend_cb(EV_P_ ev_io *w, int revents)
 {
     //DBG("%s revents=%04X", __func__, revents);
 
@@ -257,24 +284,24 @@ static void session_cb(EV_P_ ev_io *w, int revents)
     }
 }
 
-void listen_client_io(EV_P_ ev_io *w,
-                              proxy_context_t *ctx,
-                              client_context_t *sc)
+void start_client_watcher(EV_P_ ev_io *w,
+                          proxy_context_t *ctx,
+                          client_context_t *sc)
 {
-    DBG("%s fd=%d", __func__, sc->client_fd);
+    DBG("client %u client fd=%d", sc->index, sc->client_fd);
     loop = ctx->loop;
-    ev_io_init(w, proxy_cb, sc->client_fd, EV_READ);
-    w->data = ctx;
+    ev_io_init(w, client_cb, sc->client_fd, EV_READ);
+    w->data = sc;
     ev_io_start(EV_A_ w);
 }
 
-static void listen_backend_io(EV_P_ ev_io *w,
-                              proxy_context_t *ctx,
-                              client_context_t *sc)
+static void start_backend_watcher(EV_P_ ev_io *w,
+                                  proxy_context_t *ctx,
+                                  client_context_t *sc)
 {
-    DBG("%s fd=%d", __func__, sc->backend_fd);
+    DBG("client %u backend fd=%d", sc->index, sc->backend_fd);
     loop = ctx->loop;
-    ev_io_init(w, session_cb, sc->backend_fd, EV_READ);
+    ev_io_init(w, backend_cb, sc->backend_fd, EV_READ);
     w->data = sc;
     ev_io_start(EV_A_ w);
 }
@@ -286,8 +313,8 @@ int start_client(struct proxy_context *ctx,
     //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
-    listen_client_io(EV_A_ &client->client_rd_watcher, ctx, client);
-    listen_backend_io(EV_A_ &client->backend_rd_watcher, ctx, client);
+    start_client_watcher(EV_A_ &client->client_rd_watcher, ctx, client);
+    start_backend_watcher(EV_A_ &client->backend_rd_watcher, ctx, client);
 
     return 0;
 }
