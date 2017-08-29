@@ -10,7 +10,7 @@ struct proxy_context;
 typedef struct client_context {
     struct client_context *next;
     dtls_context_t *dtls;
-    dtls_peer_t peer;
+    session_t address;
     uint32_t index;
     int client_fd;
     int backend_fd;
@@ -20,7 +20,7 @@ typedef struct client_context {
 
 
 client_context_t *new_client(struct proxy_context *ctx,
-                             const dtls_peer_t *peer);
+                             const session_t *addr);
 
 void free_client(struct proxy_context *ctx,
                  client_context_t *client);

@@ -8,9 +8,9 @@
 #include "utils.h"
 
 client_context_t *new_client(struct proxy_context *ctx,
-                             const dtls_peer_t *peer)
+                             const session_t *addr)
 {
-    assert(ctx && peer && ctx->dtls);
+    assert(ctx && addr);
     client_context_t *client = (client_context_t *)malloc(sizeof(client_context_t));
     if (NULL==client) {
         ERR("failed to allocate client_context");
@@ -18,7 +18,7 @@ client_context_t *new_client(struct proxy_context *ctx,
     }
 
     memset(client, 0, sizeof(client_context_t));
-    memcpy(&client->peer, peer, sizeof(dtls_peer_t));
+    memcpy(&client->address, addr, sizeof(session_t));
     client->dtls = ctx->dtls;
 
     backend_context_t *backend = next_backend(ctx);
@@ -28,7 +28,7 @@ client_context_t *new_client(struct proxy_context *ctx,
         return NULL;
     }
 
-    client->client_fd = create_socket(&peer->session);
+    client->client_fd = create_socket(addr);
     if (client->client_fd <=0) {
         ERR("unable to create socket to client");
         free(client);
@@ -44,8 +44,8 @@ client_context_t *new_client(struct proxy_context *ctx,
     }
 
     if (0!=connect(client->client_fd,
-                   &peer->session.addr.sa,
-                   peer->session.size)) {
+                   &addr->addr.sa,
+                   addr->size)) {
         ERR("connect to client failed");
         close(client->client_fd);
         return NULL;
@@ -102,7 +102,7 @@ client_context_t *find_client(struct proxy_context *ctx,
     client_context_t *client = NULL;
 
     LL_FOREACH(ctx->clients.client, client) {
-        if (dtls_session_equals(addr, &client->peer.session)) {
+        if (dtls_session_equals(addr, &client->address)) {
             return client;
         }
     }
@@ -206,10 +206,10 @@ static int prepare_data_record(dtls_peer_t *peer, uint8 *data, size_t data_len,
 
 static int relay_to_client(client_context_t *client, uint8 *buf, size_t buf_len)
 {
-    dtls_peer_t *peer = dtls_get_peer(client->dtls, &client->peer.session);
+    dtls_peer_t *peer = dtls_get_peer(client->dtls, &client->address);
 
     if (!peer) {
-        return dtls_connect(client->dtls, &client->peer.session);
+        return dtls_connect(client->dtls, &client->address);
     }
 
     if (peer->state != DTLS_STATE_CONNECTED) {
@@ -232,7 +232,7 @@ static int relay_to_client(client_context_t *client, uint8 *buf, size_t buf_len)
     //dumpbytes(sendbuf, len);
 
     return sendto(client->client_fd, sendbuf, len, MSG_DONTWAIT,
-                  &client->peer.session.addr.sa, client->peer.session.size);
+                  &client->address.addr.sa, client->address.size);
 }
 
 static void client_cb(EV_P_ ev_io *w, int revents)

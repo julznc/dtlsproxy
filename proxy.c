@@ -73,27 +73,38 @@ static int dtls_event(struct dtls_context_t *dtls_ctx, session_t *dtls_session,
 {
     proxy_context_t *ctx = (proxy_context_t *)dtls_get_app_data(dtls_ctx);
     dtls_peer_t *peer = dtls_get_peer(dtls_ctx, dtls_session);
-    client_context_t *client = NULL;
 
-    //DBG("%s: peer=%lx", __func__, (unsigned long)peer);
+    client_context_t *client = find_client(ctx, dtls_session);
+
+    if ((DTLS_ALERT_LEVEL_FATAL==level) || (DTLS_ALERT_CLOSE_NOTIFY==code)) {
+        if (NULL!=client) {
+            stop_client(ctx, client);
+            DBG("delete client %u/%u", client->index, ctx->clients.count);
+            free_client(ctx, client);
+        }
+        return 0;
+    }
 
     switch (code)
     {
-    case DTLS_ALERT_CLOSE_NOTIFY:
-        //DBG("%s: close notify", __func__);
-        client = find_client(ctx, dtls_session);
-        if (NULL!=client) {
-            stop_client(ctx, client);
-            DBG("delete client %u", client->index);
-            free_client(ctx, client);
-        }
-        break;
     case DTLS_EVENT_CONNECT:
         DBG("%s: connect", __func__);
         break;
     case DTLS_EVENT_CONNECTED:
-        client = new_client(ctx, peer);
+        if (NULL!=client) {
+            DBG("client %u/%u already existing",
+                client->index, ctx->clients.count);
+            return 0;
+        }
+
+        if (NULL==peer) {
+            DBG("event connected but unknown peer");
+            return -1;
+        }
+
+        client = new_client(ctx, &peer->session);
         if (NULL==client) {
+            // failed to allocate new client
             return -1;
         }
         //DBG("%s: connected client %lx", __func__, (unsigned long)client);
