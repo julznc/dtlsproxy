@@ -31,9 +31,12 @@ dtls_malloc_peer() {
 
 void
 dtls_free_peer(dtls_peer_t *peer) {
+  if (NULL==peer)
+    return;
   dtls_handshake_free(peer->handshake_params);
   dtls_security_free(peer->security_params[0]);
-  dtls_security_free(peer->security_params[1]);
+  if (peer->security_params[1] != peer->security_params[0])
+    dtls_security_free(peer->security_params[1]);
   free(peer);
 }
 #else /* WITH_CONTIKI */

@@ -3610,7 +3610,8 @@ handle_alert(dtls_context_t *ctx, dtls_peer_t *peer,
   if (data[0] == DTLS_ALERT_LEVEL_FATAL || data[1] == DTLS_ALERT_CLOSE_NOTIFY) {
     dtls_alert("%d invalidate peer\n", data[1]);
     
-    DEL_PEER(ctx->peers, peer);
+    // below will be called on "dtls_destroy_peer(unlink=1)"
+    // DEL_PEER(ctx->peers, peer);
 
 #ifdef WITH_CONTIKI
 #ifndef NDEBUG
