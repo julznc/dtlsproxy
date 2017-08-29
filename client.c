@@ -7,6 +7,10 @@
 #include "proxy.h"
 #include "utils.h"
 
+
+#define CLIENT_SESSION_START_TIMEOUT        ((ev_tstamp)20.0)  // 20 seconds
+#define CLIENT_SESSION_INACTIVE_TIMEOUT     ((ev_tstamp)300.0) // 5 minutes
+
 client_context_t *new_client(struct proxy_context *ctx,
                              const session_t *addr)
 {
@@ -18,8 +22,8 @@ client_context_t *new_client(struct proxy_context *ctx,
     }
 
     memset(client, 0, sizeof(client_context_t));
+    client->proxy = ctx;
     memcpy(&client->address, addr, sizeof(session_t));
-    client->dtls = ctx->dtls;
 
     backend_context_t *backend = next_backend(ctx);
     if (NULL==backend) {
@@ -70,12 +74,12 @@ client_context_t *new_client(struct proxy_context *ctx,
     }
 
     client->index = ctx->clients.index++;
-    DBG("client %u linked to backend %u",
-        client->index,
-        backend->address.ifindex);
+    ctx->clients.count++;
 
     LL_PREPEND(ctx->clients.client, client);
-    ctx->clients.count++;
+    DBG("client %u linked to backend %u",
+        client->index, backend->address.ifindex);
+
     return client;
 }
 
@@ -92,13 +96,19 @@ void free_client(struct proxy_context *ctx,
         }
         ctx->clients.count--;
         free(client);
+        client = NULL;
     }
 }
 
 client_context_t *find_client(struct proxy_context *ctx,
                               const session_t *addr)
 {
-    assert(ctx && addr);
+    assert(ctx);
+
+    if (NULL==addr) {
+        return NULL;
+    }
+
     client_context_t *client = NULL;
 
     LL_FOREACH(ctx->clients.client, client) {
@@ -107,7 +117,7 @@ client_context_t *find_client(struct proxy_context *ctx,
         }
     }
 
-    return client;
+    return NULL;
 }
 
 /* copied form tinydtls' dtls_set_record_header() */
@@ -206,10 +216,10 @@ static int prepare_data_record(dtls_peer_t *peer, uint8 *data, size_t data_len,
 
 static int relay_to_client(client_context_t *client, uint8 *buf, size_t buf_len)
 {
-    dtls_peer_t *peer = dtls_get_peer(client->dtls, &client->address);
+    dtls_peer_t *peer = dtls_get_peer(client->proxy->dtls, &client->address);
 
     if (!peer) {
-        return dtls_connect(client->dtls, &client->address);
+        return dtls_connect(client->proxy->dtls, &client->address);
     }
 
     if (peer->state != DTLS_STATE_CONNECTED) {
@@ -254,12 +264,15 @@ static void client_cb(EV_P_ ev_io *w, int revents)
         return;
     } else {
         //DBG("got %d bytes from port %u", len, ntohs(session.addr.sin6.sin6_port));
-        if (sizeof(buf) < len) {
+        if (sizeof(buf) < (size_t)len) {
             ERR("packet was truncated (%lu bytes lost)", len - sizeof(buf));
         }
     }
 
-    dtls_handle_message(client->dtls, &session, buf, len);
+    // mark client as active
+    ev_timer_again(EV_A_ &client->inactive_timer);
+
+    dtls_handle_message(client->proxy->dtls, &session, buf, len);
 }
 
 static void backend_cb(EV_P_ ev_io *w, int revents)
@@ -269,8 +282,8 @@ static void backend_cb(EV_P_ ev_io *w, int revents)
     unsigned char packet[DTLS_MAX_BUF];
     size_t packet_len = 0;
 
-    client_context_t *sc = (client_context_t *)w->data;
-    if (w->fd == sc->backend_fd) {
+    client_context_t *client = (client_context_t *)w->data;
+    if (w->fd == client->backend_fd) {
         if (revents & EV_READ) {
             //DBG("receive from backend");
             int res = recv(w->fd, packet, sizeof(packet), 0);
@@ -279,42 +292,89 @@ static void backend_cb(EV_P_ ev_io *w, int revents)
                 return;
             }
             packet_len = res;
-            relay_to_client(sc, packet, packet_len);
+            relay_to_client(client, packet, packet_len);
         }
     }
+
+    // mark client as active
+    ev_timer_again(EV_A_ &client->inactive_timer);
 }
 
-void start_client_watcher(EV_P_ ev_io *w,
-                          proxy_context_t *ctx,
-                          client_context_t *sc)
+static void inactive_timer_cb(EV_P_ ev_timer *w, int revents)
 {
-    DBG("client %u client fd=%d", sc->index, sc->client_fd);
-    loop = ctx->loop;
-    ev_io_init(w, client_cb, sc->client_fd, EV_READ);
-    w->data = sc;
+    //DBG("%s revents=%04X", __func__, revents);
+    client_context_t *client = (client_context_t *)w->data;
+
+    if (NULL==client) {
+        ERR("no client context");
+        return;
+    }
+    proxy_context_t *ctx = (proxy_context_t *)client->proxy;
+    if (NULL==ctx) {
+        ERR("no proxy context");
+        return;
+    }
+#if 0 // for debugging only
+    client_context_t *cc = ctx->clients.client;
+    while (cc) {
+        if (cc==client)
+            break;
+        cc = cc->next;
+    }
+
+    if (NULL==cc) {
+        // should not go here
+        ERR("inactive client already deleted?!");
+        ev_timer_stop(EV_A_ w);
+        return;
+    }
+#endif
+
+    DBG("delete inactive client %u/%u", client->index, ctx->clients.count);
+
+    stop_client(ctx, client);
+    free_client(ctx, client);
+
+}
+
+static void start_client_watcher(EV_P_ ev_io *w, client_context_t *client)
+{
+    DBG("client %u client fd=%d", client->index, client->client_fd);
+    loop = client->proxy->loop;
+    ev_io_init(w, client_cb, client->client_fd, EV_READ);
+    w->data = client;
     ev_io_start(EV_A_ w);
 }
 
-static void start_backend_watcher(EV_P_ ev_io *w,
-                                  proxy_context_t *ctx,
-                                  client_context_t *sc)
+static void start_backend_watcher(EV_P_ ev_io *w, client_context_t *client)
 {
-    DBG("client %u backend fd=%d", sc->index, sc->backend_fd);
-    loop = ctx->loop;
-    ev_io_init(w, backend_cb, sc->backend_fd, EV_READ);
-    w->data = sc;
+    DBG("client %u backend fd=%d", client->index, client->backend_fd);
+    loop = client->proxy->loop;
+    ev_io_init(w, backend_cb, client->backend_fd, EV_READ);
+    w->data = client;
     ev_io_start(EV_A_ w);
+}
+
+static void start_inactive_timer(EV_P_ ev_timer *w, client_context_t *client)
+{
+    loop = client->proxy->loop;
+    ev_timer_init (w, inactive_timer_cb,
+                   CLIENT_SESSION_START_TIMEOUT,
+                   CLIENT_SESSION_INACTIVE_TIMEOUT);
+    w->data = client;
+    ev_timer_start (EV_A_ w);
 }
 
 int start_client(struct proxy_context *ctx,
                  client_context_t *client)
 {
-    assert(ctx && client);
+    assert(ctx && client && (ctx==client->proxy));
     //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
-    start_client_watcher(EV_A_ &client->client_rd_watcher, ctx, client);
-    start_backend_watcher(EV_A_ &client->backend_rd_watcher, ctx, client);
+    start_client_watcher(EV_A_ &client->client_rd_watcher, client);
+    start_backend_watcher(EV_A_ &client->backend_rd_watcher, client);
+    start_inactive_timer(EV_A_ &client->inactive_timer, client);
 
     return 0;
 }
@@ -322,11 +382,18 @@ int start_client(struct proxy_context *ctx,
 void stop_client(struct proxy_context *ctx,
                  client_context_t *client)
 {
-    assert(ctx && client);
+    assert(ctx && client && (ctx==client->proxy));
     //DBG("%s", __func__);
 
     struct ev_loop *loop = ctx->loop;
+
+    ev_clear_pending(EV_A_ &client->inactive_timer);
+    ev_timer_stop(EV_A_ &client->inactive_timer);
+
+    ev_clear_pending(EV_A_ &client->client_rd_watcher);
     ev_io_stop(EV_A_ &client->client_rd_watcher);
+
+    ev_clear_pending(EV_A_ &client->backend_rd_watcher);
     ev_io_stop(EV_A_ &client->backend_rd_watcher);
 }
 

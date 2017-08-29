@@ -9,13 +9,14 @@ struct proxy_context;
 
 typedef struct client_context {
     struct client_context *next;
-    dtls_context_t *dtls;
+    struct proxy_context *proxy;
     session_t address;
     uint32_t index;
     int client_fd;
     int backend_fd;
     ev_io client_rd_watcher;
     ev_io backend_rd_watcher;
+    ev_timer inactive_timer;
 } client_context_t;
 
 
