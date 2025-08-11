@@ -15,3 +15,7 @@ sample usage:
     $ dtlsproxy -l 0.0.0.0:5684 -b 127.0.0.1:15683 -k Client_identity:secretPSK
 ```
 Tested on Cygwin and Ubuntu hosts with a [libcoap](https://github.com/obgm/libcoap) server (on port 15683) as the backend.
+
+## SAST Tools
+
+[PVS-Studio](https://pvs-studio.com/en/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source) - static analyzer for C, C++, C#, and Java code.
